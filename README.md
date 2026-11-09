@@ -17,6 +17,16 @@ A **local** UE4SS mod that experiments with playing another Windows app's audio 
 3. Launch Bodycam, enter a match, and press **F7** to create the local emitter. Check the UE4SS console for `[BDC-ZIC]` errors. F7 again stops the emitter; after a map change restart it in the new match.
 4. Run `Open-Panel.cmd` in the installed mod folder, select **Spotify** or **YoloTube / YouTube** in the app preset, choose a matching window (or use **All processes** / type a PID), and press **Start capture**. Start music in that app. Select the parent process if audio is produced by a child process; window-title matches do not guarantee that the window owner actually renders audio, and some browsers use audio service processes outside the selected tree. Refresh after opening or changing windows; if there are multiple matches, choose one explicitly. Use Stop or close the panel to stop capture.
 
+## Live effects
+
+The panel's sound-shaping switches and 1–10 sliders are applied by the capture helper before audio reaches Unreal. Changes are picked up during capture; settings persist in `%LOCALAPPDATA%\BDC-ZIC\stream\effects.ini`. All effects start disabled. Volume 5 is unity; 1 is quiet and 10 is double gain with hard clipping.
+
+- **Reverb** adds a simple feedback echo; **Room size** adds early reflections and changes the delay length. These are synthetic effects, separate from any reverb the game may apply.
+- **Distance** reduces volume and high frequencies; it does not move the Unreal emitter. **Muffle** is a low-pass filter; **Clarity** boosts high-frequency detail and can also emphasize noise.
+- **Stereo input blend** chooses how much of the source's left versus right channel is mixed into mono: 1 favors left, 10 favors right. The game stream remains **mono**, so this is not stereo width or stereo output.
+
+Settings are intentionally simple, not a physically accurate acoustic simulation. Audible results and performance in Bodycam remain untested. The panel requires the updated `capture.exe` from the same build; an older helper will ignore the controls.
+
 ## Important audio limitations
 
 - **The music app is not muted.** Windows session mute also silences process loopback, so a naive mute would prevent capture. This prototype does not inject into other apps or change system routing. You may hear both the original app and the in-game emitter. A separate output device routed to the app and muted at the *endpoint* may work, but affects everything on that endpoint and is not managed by this project. Do not mute your main endpoint expecting only the app to be silenced.

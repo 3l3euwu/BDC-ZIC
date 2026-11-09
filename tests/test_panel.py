@@ -24,4 +24,29 @@ class PresetTests(unittest.TestCase):
         self.assertTrue(panel.matches_preset('All processes', 'foo.exe', ''))
         self.assertFalse(panel.matches_preset('Unknown', 'foo.exe', 'Spotify'))
 
+
+class EffectSettingsTests(unittest.TestCase):
+    def test_round_trip_and_disabled_level(self):
+        import tempfile
+        from unittest.mock import patch
+        class Var:
+            def __init__(self, value): self.value = value
+            def get(self): return self.value
+        class Status:
+            def set(self, value): raise AssertionError(value)
+        with tempfile.TemporaryDirectory() as folder, patch.object(panel, 'STREAM', pathlib.Path(folder)):
+            instance = panel.Panel.__new__(panel.Panel)
+            instance.volume = Var(7)
+            instance.effect_vars = {'reverb': (Var(True), Var(8)), 'muffle': (Var(False), Var(4))}
+            instance.status = Status()
+            self.assertTrue(instance.save_effects())
+            text = (pathlib.Path(folder) / 'effects.ini').read_text()
+            self.assertIn('reverb=8', text)
+            self.assertIn('muffle=0', text)
+            self.assertIn('muffle_level=4', text)
+            loaded = instance.load_effects()
+            self.assertEqual(loaded['reverb'], (True, 8))
+            self.assertEqual(loaded['muffle'], (False, 4))
+            self.assertEqual(loaded['volume'], 7)
+
 if __name__ == '__main__': unittest.main()

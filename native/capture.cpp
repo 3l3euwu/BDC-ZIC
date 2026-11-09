@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <vector>
 #include <algorithm>
+#include "effects.hpp"
 
 // audioclientactivationparams.h is not present in all SDKs.
 struct LoopbackParams { DWORD type, pid, mode; };
@@ -63,15 +64,31 @@ int wmain(int argc, wchar_t **argv) {
     if (SUCCEEDED(hr)) hr = client->Start();
     if (FAILED(hr)) { fwprintf(stderr, L"Audio initialization failed: 0x%08lx\n", (unsigned long)hr); if (capture) capture->Release(); handler->Release(); CoUninitialize(); return 5; }
     std::vector<int16_t> pending; pending.reserve(4800); unsigned slot = 0; bool failed = false;
+    wchar_t settings_path[MAX_PATH];
+    if (swprintf(settings_path, MAX_PATH, L"%ls\\effects.ini", argv[2]) < 0) { client->Stop(); capture->Release(); handler->Release(); CoUninitialize(); return 2; }
+    Effects effects; EffectSettings settings; ULONGLONG last_settings = 0;
     HANDLE process = OpenProcess(SYNCHRONIZE, FALSE, (DWORD)pid);
     fprintf(stdout, "Capturing PID %lu. Stop via panel or stop file.\n", pid); fflush(stdout);
     while (!exists(stop) && (!process || WaitForSingleObject(process, 0) == WAIT_TIMEOUT)) {
+        if (GetTickCount64() - last_settings >= 250 || last_settings == 0) {
+            // Atomic panel writes; missing file/keys fall back to safe defaults.
+            auto read = [&](const wchar_t *key, int fallback, int lo) {
+                return clamp_setting((int)GetPrivateProfileIntW(L"effects", key, fallback, settings_path), lo, 10);
+            };
+            settings.reverb = read(L"reverb", 0, 0); settings.distance = read(L"distance", 0, 0);
+            settings.clarity = read(L"clarity", 0, 0); settings.muffle = read(L"muffle", 0, 0);
+            settings.size = read(L"size", 0, 0); settings.stereo = read(L"stereo", 0, 0);
+            settings.volume = read(L"volume", 5, 1); last_settings = GetTickCount64();
+        }
         UINT32 frames = 0; hr = capture->GetNextPacketSize(&frames); if (FAILED(hr)) { failed = true; break; }
         while (frames) {
             BYTE *buf = nullptr; UINT32 count = 0; DWORD flags = 0;
             hr = capture->GetBuffer(&buf, &count, &flags, nullptr, nullptr); if (FAILED(hr)) { failed = true; break; }
             const int16_t *stereo = reinterpret_cast<const int16_t*>(buf);
-            for (UINT32 i=0; i<count; ++i) pending.push_back((flags & AUDCLNT_BUFFERFLAGS_SILENT) ? 0 : (int16_t)(((int32_t)stereo[i*2] + stereo[i*2+1]) / 2));
+            for (UINT32 i=0; i<count; ++i) {
+                const bool silent = (flags & AUDCLNT_BUFFERFLAGS_SILENT) != 0;
+                pending.push_back(effects.process(silent ? 0 : stereo[i*2], silent ? 0 : stereo[i*2+1], settings));
+            }
             capture->ReleaseBuffer(count);
             while (pending.size() >= 2400) { publish(argv[2], slot, pending.data(), 2400); slot = (slot + 1) % 8; pending.erase(pending.begin(), pending.begin()+2400); }
             if (failed) break;
