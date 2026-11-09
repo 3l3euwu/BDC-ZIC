@@ -20,6 +20,11 @@ class PresetTests(unittest.TestCase):
         self.assertFalse(panel.matches_preset('YoloTube / YouTube', 'youtube.exe', ''))
         self.assertFalse(panel.matches_preset('YoloTube / YouTube', 'other.exe', 'Other'))
 
+    def test_launch_steam_uri(self):
+        calls = []
+        panel.launch_game(calls.append)
+        self.assertEqual(calls, ['steam://rungameid/2406770'])
+
     def test_all_and_unknown(self):
         self.assertTrue(panel.matches_preset('All processes', 'foo.exe', ''))
         self.assertFalse(panel.matches_preset('Unknown', 'foo.exe', 'Spotify'))

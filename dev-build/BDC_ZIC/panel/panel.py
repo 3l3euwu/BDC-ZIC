@@ -13,6 +13,11 @@ STREAM = pathlib.Path(os.environ['LOCALAPPDATA']) / 'BDC-ZIC' / 'stream' if os.e
 HELPER = MOD / 'native' / 'capture.exe'
 CREATE_NO_WINDOW = 0x08000000
 PRESETS = ('All processes', 'Spotify', 'YoloTube / YouTube')
+GAME_URI = 'steam://rungameid/2406770'
+
+def launch_game(opener=None):
+    # Delegate protocol handling and the already-running case to Steam.
+    (opener or os.startfile)(GAME_URI)
 
 def matches_preset(preset, process_name, window_title):
     name, title = process_name.casefold(), window_title.casefold()
@@ -283,6 +288,13 @@ if __name__ == '__main__':
             messagebox.showerror('BDC-ZIC error', ''.join(traceback.format_exception(exc, value, tb)))
         app.report_callback_exception = report_error
         Panel(app)
+        def start_bodycam():
+            try:
+                launch_game()
+            except OSError as exc:
+                messagebox.showwarning('Steam launch failed',
+                    'Could not open Bodycam via Steam. Start the game manually.\n\n' + str(exc))
+        app.after(0, start_bodycam)
         app.mainloop()
     except Exception as exc:
         # pythonw has no console. Keep startup failures visible to the user.
