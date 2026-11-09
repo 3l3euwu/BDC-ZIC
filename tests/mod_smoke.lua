@@ -19,7 +19,9 @@ function StaticFindObject(name) if name:find('GameplayStatics') then return stat
 function FName(s) return s end
 function ExecuteInGameThread(fn) fn() end
 local key, loop
-Key = {F7=1}; ModRef = {}
+Key = {F7=1}
+-- Simulate older UE4SS builds whose ModRef rejects OnUnload assignment.
+ModRef = setmetatable({}, {__newindex = function() error('attempt to index a ModRef value') end})
 function RegisterKeyBind(_, fn) key = fn end
 function LoopAsync(_, fn) loop = fn end
 assert(loadfile('mod/BDC_ZIC/Scripts/main.lua'))()

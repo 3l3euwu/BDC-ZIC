@@ -1,6 +1,7 @@
 -- Experimental local-only procedural sound emitter. No offsets or code patches.
 local here = debug.getinfo(1, 'S').source:gsub('^@', ''):gsub('\\', '/'):match('^(.*)/[^/]+$')
-local stream = here .. '/../stream/'
+local localappdata = os.getenv('LOCALAPPDATA')
+local stream = localappdata and (localappdata:gsub('\\', '/') .. '/BDC-ZIC/stream/') or (here .. '/../stream/')
 local active, queued, wave, component, slot = false, false, nil, nil, 0
 local session = nil
 local function log(s) print('[BDC-ZIC] ' .. tostring(s) .. '\n') end
@@ -87,5 +88,10 @@ LoopAsync(50, function()
     end
     return false
 end)
-ModRef.OnUnload = function() active = false; clear() end
+-- Some UE4SS builds expose ModRef as userdata without an assignable OnUnload.
+-- Treat this optional hook as best-effort rather than failing the entire mod at load.
+local unload_ok = pcall(function()
+    ModRef.OnUnload = function() active = false; clear() end
+end)
+if not unload_ok then log('This UE4SS build does not support the optional unload hook; stop with F7 before unloading.') end
 log('Loaded. In a match press F7 to toggle the local emitter.')
