@@ -1,1 +1,30 @@
-# BDC-ZIC
+# BDC-ZIC (experimental)
+
+A **local** UE4SS mod that experiments with playing another Windows app's audio through a Bodycam Unreal audio component. It captures a selected process tree with Windows process loopback, converts stereo to mono, and feeds PCM to `SteamCoreProVoice`, a procedural Unreal sound wave. The component is attached near the local player's pawn, rather than played as a UI sound, so it enters the game's ordinary audio graph. Actual spatialization, attenuation, occlusion and reverb depend on Bodycam's current sound settings and have **not been verified**. This does not transmit music to other players or replace voice chat.
+
+**Status: prototype, not tested in Bodycam or on Windows.** The reflection calls, SteamCorePro plugin availability, sample format and sound routing are version dependent. This may fail silently, stutter, or crash the game; use at your own risk and check the game's modding/online rules. It does not promise gunshot-identical processing. The Linux cross-build and a mocked Lua smoke test are the only checks performed.
+
+## Requirements
+
+- Windows x64, Windows 10 build 20348 or later (or Windows 11) for process loopback; Bodycam and a UE4SS build compatible with your game version (UE 5.5 builds commonly require an experimental UE4SS build).
+- The game must expose `/Script/SteamCorePro.Default__SteamCoreProVoice`, `ConstructSteamCoreProVoice` and `AddAudioBuffer`. If the plugin is absent this prototype cannot play audio.
+- Python 3 with Tkinter (`py -3`) to run the panel, and Zig to build the helper. No Python packages, accounts, or network service needed.
+
+## Build and install
+
+1. Install Zig and run `powershell -ExecutionPolicy Bypass -File .\build.ps1` from the repository. This produces `mod\BDC_ZIC\native\capture.exe`. Alternatively cross-compile with `zig c++ -target x86_64-windows-gnu -O2 -municode native/capture.cpp -o mod/BDC_ZIC/native/capture.exe -lole32 -lmmdevapi -luuid`.
+2. Copy the **whole** `mod\BDC_ZIC` folder to `Bodycam\Bodycam\Binaries\Win64\ue4ss\Mods\BDC_ZIC`. Enable it by adding `BDC_ZIC : 1` to `ue4ss\Mods\mods.txt` (or use your UE4SS mod manager). Keep the panel, helper and Scripts together.
+3. Launch Bodycam, enter a match, and press **F7** to create the local emitter. Check the UE4SS console for `[BDC-ZIC]` errors. F7 again stops the emitter; after a map change restart it in the new match.
+4. Run `Open-Panel.cmd` in the installed mod folder, select an app's process (or type its PID), and press **Start capture**. Start music in that app. Select the parent process if audio is produced by a child process; some browsers use audio service processes outside the selected tree. Use Stop or close the panel to stop capture.
+
+## Important audio limitations
+
+- **The music app is not muted.** Windows session mute also silences process loopback, so a naive mute would prevent capture. This prototype does not inject into other apps or change system routing. You may hear both the original app and the in-game emitter. A separate output device routed to the app and muted at the *endpoint* may work, but affects everything on that endpoint and is not managed by this project. Do not mute your main endpoint expecting only the app to be silenced.
+- Playback is **local only**, anchored to the player's pawn, not replicated to other clients. It does not mix into the game's microphone/VOIP.
+- The helper requests 48 kHz stereo PCM16, downmixes to mono PCM16, and publishes bounded 50 ms packets. UE4SS converts each packet into a Lua byte table on the game thread; performance, format acceptance and latency are unverified. Packet drops can occur under load. This is not a polished low-latency audio engine.
+- The stream files and `capture.log` live under the installed `BDC_ZIC\stream` folder. They contain recent raw audio; stop capture and delete this folder to remove them. Run only one panel/helper and one game instance per mod folder. Avoid selecting Bodycam itself, which can create feedback.
+- If nothing plays, read `stream\capture.log` and the UE4SS console. The selected app must be actively outputting audio, and the correct process tree must be selected. Protected/sandboxed apps or Windows configurations may not produce capturable audio. Verify the app is not session-muted. No audio-routing or volume settings are modified.
+
+## Development
+
+`native/capture.cpp` is a standalone process-loopback producer; `mod/BDC_ZIC/Scripts/main.lua` is the Unreal-side consumer and `mod/BDC_ZIC/panel/panel.py` is the Tk controller. The fixed eight-slot file buffer bounds disk use but intentionally favors freshness over lossless delivery. `tests/mod_smoke.lua` mocks the UE4SS API and can be run with Lua 5.4 from the repository root; it is not an integration test. Do not interpret successful compilation or the smoke test as proof that the game integration works.
