@@ -248,7 +248,7 @@ class Panel:
             (STREAM / 'session').write_text(str(time.time_ns()), encoding='ascii')
             self.log = open(STREAM / 'capture.log', 'w', encoding='utf-8')
             self.proc = subprocess.Popen([str(HELPER), str(pid), str(STREAM)], stdout=self.log, stderr=subprocess.STDOUT, creationflags=CREATE_NO_WINDOW)
-            self.status.set(f'Starting PID {pid}. Press F7 in a Bodycam match. See %LOCALAPPDATA%/BDC-ZIC/stream/capture.log for errors.')
+            self.status.set(f'Starting PID {pid}. Emitter starts automatically in a match; F7 toggles it. See %LOCALAPPDATA%/BDC-ZIC/stream/capture.log for errors.')
         except (OSError, ValueError) as e:
             if self.log: self.log.close(); self.log = None
             messagebox.showerror('Capture', str(e))
