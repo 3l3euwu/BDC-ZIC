@@ -172,10 +172,10 @@ class Panel:
         ttk.Label(effects, text='02   SOUND SHAPING', style='Section.TLabel').pack(anchor='w')
         ttk.Label(effects, text='Live controls  •  processed before the game', style='Muted.TLabel').pack(anchor='w', pady=(4, 12))
         settings = self.load_effects()
-        self.auto_room = tk.BooleanVar(value=settings['auto_room'])
+        self.auto_room = tk.BooleanVar(value=False)
         self.room_status = tk.StringVar(value='Auto room off')
-        ttk.Checkbutton(effects, text='Auto room from game (experimental)', variable=self.auto_room,
-                        command=self.queue_effects).pack(anchor='w', pady=(0, 2))
+        ttk.Checkbutton(effects, text='Auto room disabled during crash investigation', variable=self.auto_room,
+                        state='disabled').pack(anchor='w', pady=(0, 2))
         ttk.Label(effects, textvariable=self.room_status, style='Muted.TLabel', wraplength=360).pack(anchor='w', pady=(0, 7))
         descriptions = [('reverb', 'Reverb'), ('distance', 'Distance'), ('clarity', 'Clarity'),
                         ('muffle', 'Muffle'), ('size', 'Room size'), ('stereo', 'Stereo input blend')]
@@ -220,7 +220,7 @@ class Panel:
             section = config['effects'] if config.has_section('effects') else {}
             for key in list(result):
                 if key == 'auto_room':
-                    result[key] = int(section.get(key, 0)) == 1
+                    result[key] = False  # Ignore previous opt-in until the crash is understood.
                 elif key == 'volume':
                     result[key] = max(1, min(10, int(section.get(key, 5))))
                 else:
@@ -240,7 +240,7 @@ class Panel:
         self.save_job = None
         try:
             STREAM.mkdir(parents=True, exist_ok=True)
-            automatic = self.auto_room.get()
+            automatic = False  # Safety lock: no geometry probes, even with old settings.
             marker, sample = STREAM / 'auto-room', STREAM / 'room.txt'
             if automatic:
                 marker.touch()
@@ -379,7 +379,7 @@ class Panel:
                 effects = auto_room_effects(measured)
                 self.room_status.set(f'Span {measured[3] / 100:.1f}m  •  Reverb {effects["reverb"]}  •  Size {effects["size"]}  •  Distance {effects["distance"]}' if measured[3] else 'Open / not enclosed  •  automatic effects off')
         else:
-            self.room_status.set('Auto room off  •  using manual controls')
+            self.room_status.set('Auto Room disabled for safety  •  manual effects available')
         if self.proc and self.proc.poll() is not None:
             code = self.proc.returncode
             self.proc = None

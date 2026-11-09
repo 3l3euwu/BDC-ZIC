@@ -22,8 +22,7 @@ local statics = setmetatable({GetPlayerController = function() return pc end, Sp
 local factory = setmetatable({ConstructSteamCoreProVoice = function(_, rate) assert(rate == 48000); return wave end}, {__index = good})
 local engine = setmetatable({GetFullName = function() return 'GameEngine' end, GameViewport = {World = good}}, {__index = good})
 function FindAllOf() return {engine} end
-local room_distance = 600
-local kismet = setmetatable({LineTraceSingle = function(_, _, _, _, _, _, _, _, hit) hit.Distance = room_distance; return true end}, {__index = good})
+local kismet = setmetatable({LineTraceSingle = function() error('room tracing must be disabled') end}, {__index = good})
 function StaticFindObject(name) if name:find('GameplayStatics') then return statics elseif name:find('KismetSystemLibrary') then return kismet else return factory end end
 function FName(s) return s end
 function ExecuteInGameThread(fn) fn() end
@@ -36,10 +35,10 @@ function RegisterLoadMapPreHook(fn) map_pre = fn end
 function RegisterLoadMapPostHook(fn) map_post = fn end
 assert(loadfile('mod/BDC_ZIC/Scripts/main.lua'))()
 loop(); assert(started == 1 and submitted == 1) -- automatically starts
-local sample = assert(io.open(path .. 'room.txt', 'rb')); assert(sample:read('*a') == '4 6 5 1200\n'); sample:close()
-room_distance = 200
+-- Old panels can recreate the marker, but the safety build must never trace.
+local marker2 = assert(io.open(path .. 'auto-room', 'wb')); marker2:close()
 for _ = 1, 10 do loop() end
-sample = assert(io.open(path .. 'room.txt', 'rb')); assert(sample:read('*a') == '0 2 5 400\n'); sample:close()
+assert(not io.open(path .. 'room.txt', 'rb'))
 map_pre(); assert(stopped == 1 and not io.open(path .. 'room.txt', 'rb'))
 for _ = 1, 45 do loop() end
 assert(started == 1) -- never starts during load

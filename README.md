@@ -27,13 +27,11 @@ The panel's sound-shaping switches and 1–10 sliders are applied by the capture
 
 Settings are intentionally simple, not a physically accurate acoustic simulation. Audible results and performance in Bodycam remain untested. The panel requires the updated `capture.exe` from the same build; an older helper will ignore the controls.
 
-### Experimental automatic room estimate
+### Auto Room temporarily disabled
 
-Enable **Auto room from game** in the panel. While the emitter is active, the mod measures nearby collision geometry about every **0.5 seconds** using four horizontal traces and one upward trace, up to 20 m each. Opposing horizontal distances estimate an average room width/depth; a ceiling and at least two wall hits are required to treat the space as enclosed. The panel shows the estimated span and applies synthetic reverb in near real time (game and UI scheduling can add latency): rooms up to about 4 m are dry, while progressively larger spaces receive more reverb. Open or insufficiently enclosed areas are dry.
+A user reported a UE4SS access violation while entering a game with Auto Room enabled. Its cause is **not yet known**. As a precaution this diagnostic build refuses to perform Auto Room traces even if an older panel left the marker enabled. The panel disables the switch and restores manual reverb, size, and distance settings. Auto Room is unavailable until the crash is investigated; existing `room.lua` code is retained only for offline tests.
 
-The automatic setting overrides synthetic **reverb**, **room size**, and **distance**; the distance effect is an artificial low-pass/volume adjustment based on the estimated span, not the actual physical distance to the player or a moved emitter; other controls remain manual. Your manual settings remain saved as a fallback. Turning auto off, losing the estimate, or an estimate older than three seconds restores them.
-
-This is an **opt-in approximation from collision geometry**, not a reading of Bodycam's actual room-size, gunshot, material, occlusion, or reverb settings. It does not hook or duplicate gunfire, and UE audio may add its own processing on top. Collision channels, open doors, moving objects, and trace compatibility can make the estimate misleading; it can add overhead or fail in a particular game/UE4SS build. Check the panel status and `[BDC-ZIC]` log; disable it if it causes issues. Not tested in Bodycam.
+The in-game emitter and PCM bridge are also experimental and may still crash. This build logs stages before voice creation, audio-component creation, the first PCM submission, and map cleanup. If testing, keep other mods disabled where practical, start with capture stopped, and enable features one at a time. Stop testing and disable BDC_ZIC in `mods.txt` if it crashes. Share the last `[BDC-ZIC]` lines and what you were doing; an access violation is not caught by Lua's `pcall`.
 
 ### Route your music app to a separate output
 

@@ -86,7 +86,7 @@ class AutoRoomTests(unittest.TestCase):
             p.write_text('0 0', encoding='ascii')
             self.assertIsNone(panel.read_room(p, now=p.stat().st_mtime))
 
-    def test_auto_override_and_manual_fallback(self):
+    def test_auto_room_is_locked_and_manual_preserved(self):
         import tempfile
         from unittest.mock import patch
         class Var:
@@ -98,24 +98,17 @@ class AutoRoomTests(unittest.TestCase):
             instance = panel.Panel.__new__(panel.Panel)
             instance.volume, instance.auto_room, instance.status = Var(5), Var(True), Status()
             instance.effect_vars = {'reverb': (Var(False), Var(7)), 'size': (Var(True), Var(3)), 'distance': (Var(True), Var(6))}
+            (panel.STREAM / 'auto-room').touch()
             (panel.STREAM / 'room.txt').write_text('8 6 4 1600')
             self.assertTrue(instance.save_effects())
             text = (panel.STREAM / 'effects.ini').read_text()
-            self.assertIn('reverb=8', text); self.assertIn('size=6', text); self.assertIn('distance=3', text)
+            self.assertIn('auto_room=0', text)
+            self.assertIn('reverb=0', text); self.assertIn('size=3', text); self.assertIn('distance=6', text)
+            self.assertFalse((panel.STREAM / 'auto-room').exists())
+            self.assertFalse((panel.STREAM / 'room.txt').exists())
+            self.assertFalse(instance.load_effects()['auto_room'])
             self.assertEqual(instance.load_effects()['reverb'], (False, 7))
             self.assertEqual(instance.load_effects()['size'], (True, 3))
             self.assertEqual(instance.load_effects()['distance'], (True, 6))
-            (panel.STREAM / 'room.txt').write_text('0 2 5 400')
-            self.assertTrue(instance.save_effects())
-            text = (panel.STREAM / 'effects.ini').read_text()
-            self.assertIn('reverb=0', text); self.assertIn('size=0', text); self.assertIn('distance=0', text)
-            (panel.STREAM / 'room.txt').unlink()
-            self.assertTrue(instance.save_effects())
-            text = (panel.STREAM / 'effects.ini').read_text()
-            self.assertIn('reverb=0', text); self.assertIn('size=3', text); self.assertIn('distance=6', text)
-            self.assertTrue((panel.STREAM / 'auto-room').exists())
-            instance.auto_room = Var(False)
-            self.assertTrue(instance.save_effects())
-            self.assertFalse((panel.STREAM / 'auto-room').exists())
 
 if __name__ == '__main__': unittest.main()

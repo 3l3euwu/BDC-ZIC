@@ -3,11 +3,13 @@ local here = debug.getinfo(1, 'S').source:gsub('^@', ''):gsub('\\', '/'):match('
 local localappdata = os.getenv('LOCALAPPDATA')
 local stream = localappdata and (localappdata:gsub('\\', '/') .. '/BDC-ZIC/stream/') or (here .. '/../stream/')
 local active, queued, wave, component, slot = false, false, nil, nil, 0
-local enabled, map_loading, retry_ticks, room_ticks = true, false, 0, 0
+local enabled, map_loading, retry_ticks = true, false, 0
 local engine, attached_world, attached_pawn, last_error
 local session = nil
-local room = dofile(here .. '/room.lua')
-local room_last_error
+local buffer_logged = false
+-- Fail closed even if an older panel left the marker behind.
+os.remove(stream .. 'auto-room')
+os.remove(stream .. 'room.txt')
 local function log(s) print('[BDC-ZIC] ' .. tostring(s) .. '\n') end
 local function valid(o)
     local ok, result = pcall(function() return o ~= nil and o:IsValid() end)
@@ -44,38 +46,20 @@ local function start(world, pawn, statics)
     clear()
     local factory = StaticFindObject('/Script/SteamCorePro.Default__SteamCoreProVoice')
     assert(valid(factory), 'SteamCoreProVoice unavailable in this game build.')
+    log('Diagnostic: constructing procedural voice.')
     wave = factory:ConstructSteamCoreProVoice(48000)
     assert(valid(wave), 'Could not construct procedural voice.')
     -- LocationType=KeepRelativeOffset. This is a normal attached 3D audio component,
     -- not a UI/2D sound; the game's mix/submix/reverb policy still applies.
+    log('Diagnostic: spawning attached audio component.')
     component = statics:SpawnSoundAttached(wave, pawn.RootComponent, FName('None'),
         {X=100.0,Y=0.0,Z=0.0}, {Pitch=0.0,Yaw=0.0,Roll=0.0}, 0,
         true, 1.0, 1.0, 0.0, nil, nil, false)
     assert(valid(component), 'SpawnSoundAttached failed.')
     attached_world, attached_pawn = world:GetAddress(), pawn:GetAddress()
     slot = 0
+    buffer_logged = false
     log('Emitter attached to local pawn. Start capture in the panel.')
-end
-local function update_room(pawn)
-    local marker = io.open(stream .. 'auto-room', 'rb')
-    if not marker then return end
-    marker:close()
-    local ok, reverb, size, hits, span = pcall(function()
-        local kismet = StaticFindObject('/Script/Engine.Default__KismetSystemLibrary')
-        assert(valid(kismet), 'KismetSystemLibrary unavailable')
-        return room.measure(kismet, pawn)
-    end)
-    if not ok then
-        os.remove(stream .. 'room.txt')
-        if tostring(reverb) ~= room_last_error then
-            room_last_error = tostring(reverb)
-            log('Auto room unavailable; using manual effects: ' .. room_last_error)
-        end
-        return
-    end
-    local file = io.open(stream .. 'room.txt', 'wb')
-    if file then file:write(string.format('%d %d %d %d\n', reverb, size, hits, span)); file:close() end
-    room_last_error = nil
 end
 local function tick()
     if not active then return end
@@ -102,7 +86,9 @@ local function tick()
         slot = (slot + 1) % 8
         if data and #data == 4800 then
             local bytes = {data:byte(1, #data)}
+            if not buffer_logged then log('Diagnostic: submitting first PCM packet to UE4SS.') end
             wave:AddAudioBuffer(bytes)
+            if not buffer_logged then buffer_logged = true; log('Diagnostic: first PCM packet submitted.') end
         end
     end
 end
@@ -114,10 +100,14 @@ if hook_ok then
         -- Register post first: if pre registration fails, we cannot get stuck
         -- permanently suspended with no post hook to release us.
         RegisterLoadMapPostHook(function()
-            map_loading = false; retry_ticks = 0; room_ticks = 0; last_error = nil
+            map_loading = false; retry_ticks = 0; last_error = nil
+            log('Diagnostic: map load completed; waiting for player.')
         end)
         RegisterLoadMapPreHook(function()
-            map_loading = true; active = false; clear()
+            map_loading = true; active = false
+            log('Diagnostic: map load starting; stopping emitter.')
+            clear()
+            log('Diagnostic: map-load emitter cleanup completed.')
         end)
     end)
     if not ok then map_loading = false; log('Map hooks unavailable; using polling fallback.') end
@@ -143,7 +133,7 @@ LoopAsync(50, function()
                 local ok, world, pawn, statics = pcall(context)
                 if ok then
                     if active and (world:GetAddress() ~= attached_world or pawn:GetAddress() ~= attached_pawn) then
-                        active = false; clear(); log('Player or world changed; reconnecting emitter.')
+                        active = false; log('Diagnostic: player or world changed; stopping emitter.'); clear(); log('Player or world changed; reconnecting emitter.')
                     end
                     if not active then
                         local started, err = pcall(start, world, pawn, statics)
@@ -154,7 +144,7 @@ LoopAsync(50, function()
                         end
                     end
                 else
-                    if active then active = false; clear(); log('World or player unavailable; waiting to reconnect.') end
+                    if active then active = false; log('Diagnostic: world or player unavailable; stopping emitter.'); clear(); log('World or player unavailable; waiting to reconnect.') end
                     -- Missing world/player is normal while entering or changing a lobby;
                     -- report each distinct error once so unexpected reflection errors are visible.
                     if tostring(world) ~= last_error then
@@ -163,20 +153,6 @@ LoopAsync(50, function()
                 end
             end
             if active then
-                room_ticks = room_ticks - 1
-                if room_ticks <= 0 then
-                    room_ticks = 10 -- approx. 500ms at the 50ms loop interval
-                    local marker = io.open(stream .. 'auto-room', 'rb')
-                    if marker then
-                        marker:close()
-                        local found, world, pawn = pcall(context)
-                        if found and world:GetAddress() == attached_world and pawn:GetAddress() == attached_pawn then
-                            update_room(pawn)
-                        else
-                            os.remove(stream .. 'room.txt')
-                        end
-                    end
-                end
                 local ok, err = pcall(tick)
                 if not ok then
                     enabled = false; active = false; clear()
@@ -194,3 +170,4 @@ local unload_ok = pcall(function()
 end)
 if not unload_ok then log('This UE4SS build does not support the optional unload hook; stop with F7 before unloading.') end
 log('Loaded. The emitter starts automatically when a local player is ready; F7 toggles it.')
+log('Safety: Auto Room traces are disabled while the crash is investigated.')
