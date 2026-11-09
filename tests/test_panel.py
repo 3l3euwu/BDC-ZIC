@@ -66,6 +66,12 @@ class EffectSettingsTests(unittest.TestCase):
             self.assertEqual(loaded['volume'], 7)
 
 class AutoRoomTests(unittest.TestCase):
+    def test_room_effect_mapping(self):
+        self.assertEqual(panel.auto_room_effects((0, 0, 0, 0)), {'reverb': 0, 'size': 0, 'distance': 0})
+        self.assertEqual(panel.auto_room_effects((0, 2, 5, 400)), {'reverb': 0, 'size': 0, 'distance': 0})
+        self.assertEqual(panel.auto_room_effects((8, 8, 5, 1600)), {'reverb': 8, 'size': 8, 'distance': 3})
+        self.assertEqual(panel.auto_room_effects((10, 10, 5, 4000))['distance'], 10)
+
     def test_stale_partial_and_out_of_range(self):
         import tempfile
         import os
@@ -91,21 +97,22 @@ class AutoRoomTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder, patch.object(panel, 'STREAM', pathlib.Path(folder)):
             instance = panel.Panel.__new__(panel.Panel)
             instance.volume, instance.auto_room, instance.status = Var(5), Var(True), Status()
-            instance.effect_vars = {'reverb': (Var(False), Var(7)), 'size': (Var(True), Var(3))}
+            instance.effect_vars = {'reverb': (Var(False), Var(7)), 'size': (Var(True), Var(3)), 'distance': (Var(True), Var(6))}
             (panel.STREAM / 'room.txt').write_text('8 6 4 1600')
             self.assertTrue(instance.save_effects())
             text = (panel.STREAM / 'effects.ini').read_text()
-            self.assertIn('reverb=8', text); self.assertIn('size=6', text)
+            self.assertIn('reverb=8', text); self.assertIn('size=6', text); self.assertIn('distance=3', text)
             self.assertEqual(instance.load_effects()['reverb'], (False, 7))
             self.assertEqual(instance.load_effects()['size'], (True, 3))
+            self.assertEqual(instance.load_effects()['distance'], (True, 6))
             (panel.STREAM / 'room.txt').write_text('0 2 5 400')
             self.assertTrue(instance.save_effects())
             text = (panel.STREAM / 'effects.ini').read_text()
-            self.assertIn('reverb=0', text); self.assertIn('size=0', text)
+            self.assertIn('reverb=0', text); self.assertIn('size=0', text); self.assertIn('distance=0', text)
             (panel.STREAM / 'room.txt').unlink()
             self.assertTrue(instance.save_effects())
             text = (panel.STREAM / 'effects.ini').read_text()
-            self.assertIn('reverb=0', text); self.assertIn('size=3', text)
+            self.assertIn('reverb=0', text); self.assertIn('size=3', text); self.assertIn('distance=6', text)
             self.assertTrue((panel.STREAM / 'auto-room').exists())
             instance.auto_room = Var(False)
             self.assertTrue(instance.save_effects())

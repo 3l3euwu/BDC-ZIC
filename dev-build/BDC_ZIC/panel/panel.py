@@ -35,6 +35,13 @@ def read_room(path, now=None):
     except (OSError, UnicodeError, ValueError):
         return None
 
+def auto_room_effects(measured):
+    """Map geometry to synthetic effects, not a physical source position."""
+    reverb, size, _hits, span_cm = measured
+    distance = min(10, max(0, (span_cm - 400 + 180) // 360)) if span_cm else 0
+    # Room size adds an early echo in the DSP, so keep it off in dry rooms.
+    return {'reverb': reverb, 'size': size if reverb else 0, 'distance': distance}
+
 def parse_outputs(text):
     """Only offer explicitly non-default endpoints. IDs remain opaque."""
     devices = []
@@ -242,13 +249,13 @@ class Panel:
                 marker.unlink(missing_ok=True)
                 sample.unlink(missing_ok=True)
                 measured = None
+            auto_effects = auto_room_effects(measured) if automatic and measured is not None else {}
             lines = ['[effects]', f'volume={self.volume.get()}', f'auto_room={int(automatic)}']
             for key, (enabled, level) in self.effect_vars.items():
                 manual = level.get() if enabled.get() else 0
                 effective = manual
-                if automatic and measured and key in ('reverb', 'size'):
-                    effective = measured[0 if key == 'reverb' else 1]
-                    if key == 'size' and measured[0] == 0: effective = 0
+                if key in auto_effects:
+                    effective = auto_effects[key]
                 lines.append(f'{key}={effective}')
                 lines.append(f'manual_{key}={manual}')
                 lines.append(f'{key}_level={level.get()}')
@@ -367,9 +374,10 @@ class Panel:
             measured = read_room(STREAM / 'room.txt')
             if measured != self.last_room: self.save_effects()
             if measured is None:
-                self.room_status.set('Waiting for game geometry; using manual reverb / size.')
+                self.room_status.set('Waiting for game geometry; using manual effects.')
             else:
-                self.room_status.set(f'Estimated span: {measured[3] / 100:.1f} m  •  reverb {measured[0]}/10' if measured[3] else 'Open / not enclosed  •  synthetic room effect off')
+                effects = auto_room_effects(measured)
+                self.room_status.set(f'Span {measured[3] / 100:.1f}m  •  Reverb {effects["reverb"]}  •  Size {effects["size"]}  •  Distance {effects["distance"]}' if measured[3] else 'Open / not enclosed  •  automatic effects off')
         else:
             self.room_status.set('Auto room off  •  using manual controls')
         if self.proc and self.proc.poll() is not None:

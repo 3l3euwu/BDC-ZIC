@@ -31,9 +31,18 @@ Settings are intentionally simple, not a physically accurate acoustic simulation
 
 Enable **Auto room from game** in the panel. While the emitter is active, the mod measures nearby collision geometry about every **0.5 seconds** using four horizontal traces and one upward trace, up to 20 m each. Opposing horizontal distances estimate an average room width/depth; a ceiling and at least two wall hits are required to treat the space as enclosed. The panel shows the estimated span and applies synthetic reverb in near real time (game and UI scheduling can add latency): rooms up to about 4 m are dry, while progressively larger spaces receive more reverb. Open or insufficiently enclosed areas are dry.
 
-The automatic setting overrides synthetic **reverb** and **room size** only; other controls remain manual. Your manual settings remain saved as a fallback. Turning auto off, losing the estimate, or an estimate older than three seconds restores them.
+The automatic setting overrides synthetic **reverb**, **room size**, and **distance**; the distance effect is an artificial low-pass/volume adjustment based on the estimated span, not the actual physical distance to the player or a moved emitter; other controls remain manual. Your manual settings remain saved as a fallback. Turning auto off, losing the estimate, or an estimate older than three seconds restores them.
 
 This is an **opt-in approximation from collision geometry**, not a reading of Bodycam's actual room-size, gunshot, material, occlusion, or reverb settings. It does not hook or duplicate gunfire, and UE audio may add its own processing on top. Collision channels, open doors, moving objects, and trace compatibility can make the estimate misleading; it can add overhead or fail in a particular game/UE4SS build. Check the panel status and `[BDC-ZIC]` log; disable it if it causes issues. Not tested in Bodycam.
+
+### Route your music app to a separate output
+
+1. Connect or install a second **playback/output** device (for example a spare USB headset or a virtual audio cable). Leave your normal speakers/headset as the Windows default; use that normal output for Bodycam.
+2. Start playing music so the app appears in Windows audio settings. In the BDC-ZIC panel click **Windows app audio settings**. On Windows 11, go to **Settings → System → Sound → Volume mixer**; under **Apps**, expand your music app and choose the second device under **Output device**. On Windows 10, use **Settings → System → Sound → Advanced sound options → App volume and device preferences** and choose the app's **Output**. Names vary by Windows version.
+3. Keep the app's volume up and its app/session mute **off**. If output doesn't move, restart the music app and check its output selection again. Some browsers use separate audio processes; choose the correct process in the panel.
+4. In BDC-ZIC, click **Find outputs**, select that same secondary device, check **Mute a dedicated output while capturing**, then click **Start capture** and confirm. This mutes **every app on that device**, not only the music app. Capture then feeds the game if Windows supports loopback from the muted endpoint.
+
+If no secondary playback device exists, one is required for this method. Do not select Bodycam or route it to the muted output. The helper refuses Windows default endpoints. Normal stop restores the device's previous mute state, but after a crash check Windows Sound settings and unmute it manually if needed.
 
 ## Important audio limitations
 
