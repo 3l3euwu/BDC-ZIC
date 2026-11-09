@@ -8,17 +8,18 @@ end
 packet()
 local marker = assert(io.open(path .. 'auto-room', 'wb')); marker:close()
 local good = {IsValid = function() return true end, GetAddress = function() return 1 end}
-local submitted, stopped, started = 0, 0, 0
+local submitted, stopped, started, contexts = 0, 0, 0, 0
+local emitter_valid = true
 local wave = setmetatable({AddAudioBuffer = function(_, bytes)
     assert(#bytes == 4800 and bytes[1] == 1 and bytes[2] == 0); submitted = submitted + 1
 end}, {__index = good})
-local component = setmetatable({Stop = function() stopped = stopped + 1 end}, {__index = good})
+local component = setmetatable({IsValid = function() return emitter_valid end, Stop = function() stopped = stopped + 1 end}, {__index = good})
 local location = function() return {X=0,Y=0,Z=0} end
 local pawn1 = setmetatable({RootComponent = good, K2_GetActorLocation = location, GetAddress = function() return 10 end}, {__index = good})
 local pawn2 = setmetatable({RootComponent = good, K2_GetActorLocation = location, GetAddress = function() return 20 end}, {__index = good})
 local pawn = pawn1
 local pc = setmetatable({K2_GetPawn = function() return pawn end}, {__index = good})
-local statics = setmetatable({GetPlayerController = function() return pc end, SpawnSoundAttached = function(_, sound) assert(sound == wave); started = started + 1; return component end}, {__index = good})
+local statics = setmetatable({GetPlayerController = function() contexts = contexts + 1; return pc end, SpawnSoundAttached = function(_, sound) assert(sound == wave); started = started + 1; return component end}, {__index = good})
 local factory = setmetatable({ConstructSteamCoreProVoice = function(_, rate) assert(rate == 48000); return wave end}, {__index = good})
 local engine = setmetatable({GetFullName = function() return 'GameEngine' end, GameViewport = {World = good}}, {__index = good})
 function FindAllOf() return {engine} end
@@ -39,17 +40,25 @@ loop(); assert(started == 1 and submitted == 1) -- automatically starts
 local marker2 = assert(io.open(path .. 'auto-room', 'wb')); marker2:close()
 for _ = 1, 10 do loop() end
 assert(not io.open(path .. 'room.txt', 'rb'))
-map_pre(); assert(stopped == 1 and not io.open(path .. 'room.txt', 'rb'))
+map_pre(); assert(stopped == 0 and not io.open(path .. 'room.txt', 'rb'))
 for _ = 1, 45 do loop() end
-assert(started == 1) -- never starts during load
-pawn = pawn2; packet(); map_post(); loop()
-assert(started == 2 and submitted == 2) -- reconnect after load without F7
-pawn = pawn1
-for _ = 1, 40 do loop() end
-assert(started == 3 and stopped == 2) -- pawn change without a map load
-key(); assert(stopped == 3)
+assert(started == 1) -- no engine calls during load
+pawn = pawn2; packet(); map_post()
+local before = contexts
+for _ = 1, 45 do loop() end
+assert(started == 1 and contexts == before) -- no automatic restart after travel
+key(); loop(); assert(started == 2 and submitted == 2) -- explicit resume
+emitter_valid = false
+loop() -- emitter lost; must discard without calling Stop
+assert(stopped == 0)
+before = contexts
+for _ = 1, 45 do loop() end
+assert(started == 2 and contexts == before) -- no retry when pawn disappears
+emitter_valid = true; pawn = pawn1
+key(); loop(); assert(started == 3)
+key(); assert(stopped == 1) -- explicit user stop still invokes Stop
 for _ = 1, 50 do loop() end
-assert(started == 3) -- F7 disables automatic restart
-key(); loop(); assert(started == 4) -- F7 re-enables
+assert(started == 3)
+key(); loop(); assert(started == 4)
 os.remove(path .. 'session'); os.remove(path .. 'chunk0.pcm'); os.remove(path .. 'auto-room'); os.remove(path .. 'room.txt')
 print('mod smoke test passed')

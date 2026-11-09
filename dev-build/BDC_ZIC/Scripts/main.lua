@@ -15,9 +15,10 @@ local function valid(o)
     local ok, result = pcall(function() return o ~= nil and o:IsValid() end)
     return ok and result == true
 end
-local function clear()
+local function clear(stop_component)
     os.remove(stream .. 'room.txt') -- never reuse an estimate after a world change
-    if valid(component) then pcall(function() component:Stop() end) end
+    -- Only call Stop on an explicit user request, never while objects may be tearing down.
+    if stop_component and valid(component) then pcall(function() component:Stop() end) end
     component, wave, attached_world, attached_pawn = nil, nil, nil, nil
 end
 -- Cache the engine; repeated global object scans during map loading are unsafe.
@@ -63,7 +64,11 @@ local function start(world, pawn, statics)
 end
 local function tick()
     if not active then return end
-    if not valid(component) or not valid(wave) then active = false; clear(); retry_ticks = 0; log('Emitter lost; waiting for the local player.'); return end
+    if not valid(component) or not valid(wave) then
+        enabled = false; active = false; clear(false)
+        log('Emitter lost. Playback paused for safety; after loading, press F7 to resume.')
+        return
+    end
     local marker = io.open(stream .. "session", "rb")
     if marker then
         local current = marker:read("*a"); marker:close()
@@ -101,13 +106,15 @@ if hook_ok then
         -- permanently suspended with no post hook to release us.
         RegisterLoadMapPostHook(function()
             map_loading = false; retry_ticks = 0; last_error = nil
-            log('Diagnostic: map load completed; waiting for player.')
+            log(enabled and 'Diagnostic: map load completed; waiting for player.' or 'Map load completed. Press F7 after entering the game to resume.')
         end)
         RegisterLoadMapPreHook(function()
-            map_loading = true; active = false
-            log('Diagnostic: map load starting; stopping emitter.')
-            clear()
-            log('Diagnostic: map-load emitter cleanup completed.')
+            map_loading = true
+            if active then enabled = false end
+            active = false
+            log('Diagnostic: map load starting; dropping emitter references without calling Unreal.')
+            clear(false)
+            log('Diagnostic: map-load emitter references cleared.')
         end)
     end)
     if not ok then map_loading = false; log('Map hooks unavailable; using polling fallback.') end
@@ -116,8 +123,9 @@ else
 end
 RegisterKeyBind(Key.F7, function()
     ExecuteInGameThread(function()
+        if map_loading then log('Wait until the map has loaded before pressing F7.'); return end
         enabled = not enabled
-        if not enabled then active = false; clear(); log('Emitter disabled. Press F7 to enable it.')
+        if not enabled then active = false; clear(true); log('Emitter disabled. Press F7 to enable it.')
         else retry_ticks = 0; last_error = nil; log('Emitter enabled; waiting for local player.') end
     end)
 end)
@@ -133,18 +141,24 @@ LoopAsync(50, function()
                 local ok, world, pawn, statics = pcall(context)
                 if ok then
                     if active and (world:GetAddress() ~= attached_world or pawn:GetAddress() ~= attached_pawn) then
-                        active = false; log('Diagnostic: player or world changed; stopping emitter.'); clear(); log('Player or world changed; reconnecting emitter.')
+                        enabled = false; active = false; clear(false)
+                        log('Player or world changed. Playback paused for safety; press F7 after loading to resume.')
+                        return
                     end
                     if not active then
                         local started, err = pcall(start, world, pawn, statics)
                         if started then active = true; last_error = nil
                         else
-                            clear()
-                            if tostring(err) ~= last_error then last_error = tostring(err); log('Waiting to start: ' .. last_error) end
+                            enabled = false; clear(false)
+                            last_error = tostring(err); log('Emitter start failed: ' .. last_error .. '. Press F7 to retry after loading.')
                         end
                     end
                 else
-                    if active then active = false; log('Diagnostic: world or player unavailable; stopping emitter.'); clear(); log('World or player unavailable; waiting to reconnect.') end
+                    if active then
+                        enabled = false; active = false; clear(false)
+                        log('World or player unavailable. Playback paused for safety; press F7 after loading to resume.')
+                        return
+                    end
                     -- Missing world/player is normal while entering or changing a lobby;
                     -- report each distinct error once so unexpected reflection errors are visible.
                     if tostring(world) ~= last_error then
@@ -155,7 +169,7 @@ LoopAsync(50, function()
             if active then
                 local ok, err = pcall(tick)
                 if not ok then
-                    enabled = false; active = false; clear()
+                    enabled = false; active = false; clear(false)
                     log('Playback failed: ' .. tostring(err) .. '. Press F7 to retry.')
                 end
             end
@@ -169,5 +183,5 @@ local unload_ok = pcall(function()
     ModRef.OnUnload = function() enabled = false; active = false; clear() end
 end)
 if not unload_ok then log('This UE4SS build does not support the optional unload hook; stop with F7 before unloading.') end
-log('Loaded. The emitter starts automatically when a local player is ready; F7 toggles it.')
+log('Loaded. Playback pauses on emitter loss or map change; press F7 after loading to resume.')
 log('Safety: Auto Room traces are disabled while the crash is investigated.')

@@ -360,7 +360,7 @@ class Panel:
             self.proc = subprocess.Popen(args, stdout=self.log, stderr=subprocess.STDOUT, creationflags=CREATE_NO_WINDOW)
             self.active_mute_label = output_label
             self.lock_output_controls(True)
-            self.status.set(f'Starting PID {pid}. Emitter starts automatically in a match; F7 toggles it. See %LOCALAPPDATA%/BDC-ZIC/stream/capture.log for errors.')
+            self.status.set(f'Starting PID {pid}. After a map change, wait for loading and press F7 to resume. See %LOCALAPPDATA%/BDC-ZIC/stream/capture.log for errors.')
         except (OSError, ValueError) as e:
             if self.log: self.log.close(); self.log = None
             messagebox.showerror('Capture', str(e))
