@@ -29,7 +29,9 @@ Settings are intentionally simple, not a physically accurate acoustic simulation
 
 ### Experimental automatic room estimate
 
-Enable **Auto room from game** in the panel. Every ~2 seconds while the emitter is active, the mod performs five visibility traces around the local player (four horizontal and one upward, up to 20 m). The panel uses the number and average distance of hits to choose synthetic **reverb** and **room size**; other controls remain manual. The sliders and switches for those two effects are kept as fallback and are not changed. With no nearby hits the synthetic room effect is disabled. Turning auto off, losing the estimate, or an estimate older than seven seconds restores the manual values.
+Enable **Auto room from game** in the panel. While the emitter is active, the mod measures nearby collision geometry about every **0.5 seconds** using four horizontal traces and one upward trace, up to 20 m each. Opposing horizontal distances estimate an average room width/depth; a ceiling and at least two wall hits are required to treat the space as enclosed. The panel shows the estimated span and applies synthetic reverb in near real time (game and UI scheduling can add latency): rooms up to about 4 m are dry, while progressively larger spaces receive more reverb. Open or insufficiently enclosed areas are dry.
+
+The automatic setting overrides synthetic **reverb** and **room size** only; other controls remain manual. Your manual settings remain saved as a fallback. Turning auto off, losing the estimate, or an estimate older than three seconds restores them.
 
 This is an **opt-in approximation from collision geometry**, not a reading of Bodycam's actual room-size, gunshot, material, occlusion, or reverb settings. It does not hook or duplicate gunfire, and UE audio may add its own processing on top. Collision channels, open doors, moving objects, and trace compatibility can make the estimate misleading; it can add overhead or fail in a particular game/UE4SS build. Check the panel status and `[BDC-ZIC]` log; disable it if it causes issues. Not tested in Bodycam.
 

@@ -71,11 +71,11 @@ class AutoRoomTests(unittest.TestCase):
         import os
         with tempfile.TemporaryDirectory() as folder:
             p = pathlib.Path(folder) / 'room.txt'
-            p.write_text('6 4 3', encoding='ascii')
+            p.write_text('6 4 3 1200', encoding='ascii')
             stamp = p.stat().st_mtime
-            self.assertEqual(panel.read_room(p, now=stamp), (6, 4, 3))
-            self.assertIsNone(panel.read_room(p, now=stamp + 8))
-            p.write_text('3 99 2', encoding='ascii')
+            self.assertEqual(panel.read_room(p, now=stamp), (6, 4, 3, 1200))
+            self.assertIsNone(panel.read_room(p, now=stamp + 4))
+            p.write_text('3 99 2 1200', encoding='ascii')
             self.assertIsNone(panel.read_room(p, now=p.stat().st_mtime))
             p.write_text('0 0', encoding='ascii')
             self.assertIsNone(panel.read_room(p, now=p.stat().st_mtime))
@@ -92,12 +92,16 @@ class AutoRoomTests(unittest.TestCase):
             instance = panel.Panel.__new__(panel.Panel)
             instance.volume, instance.auto_room, instance.status = Var(5), Var(True), Status()
             instance.effect_vars = {'reverb': (Var(False), Var(7)), 'size': (Var(True), Var(3))}
-            (panel.STREAM / 'room.txt').write_text('8 6 4')
+            (panel.STREAM / 'room.txt').write_text('8 6 4 1600')
             self.assertTrue(instance.save_effects())
             text = (panel.STREAM / 'effects.ini').read_text()
             self.assertIn('reverb=8', text); self.assertIn('size=6', text)
             self.assertEqual(instance.load_effects()['reverb'], (False, 7))
             self.assertEqual(instance.load_effects()['size'], (True, 3))
+            (panel.STREAM / 'room.txt').write_text('0 2 5 400')
+            self.assertTrue(instance.save_effects())
+            text = (panel.STREAM / 'effects.ini').read_text()
+            self.assertIn('reverb=0', text); self.assertIn('size=0', text)
             (panel.STREAM / 'room.txt').unlink()
             self.assertTrue(instance.save_effects())
             text = (panel.STREAM / 'effects.ini').read_text()

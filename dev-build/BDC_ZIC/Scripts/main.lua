@@ -3,7 +3,7 @@ local here = debug.getinfo(1, 'S').source:gsub('^@', ''):gsub('\\', '/'):match('
 local localappdata = os.getenv('LOCALAPPDATA')
 local stream = localappdata and (localappdata:gsub('\\', '/') .. '/BDC-ZIC/stream/') or (here .. '/../stream/')
 local active, queued, wave, component, slot = false, false, nil, nil, 0
-local enabled, map_loading, retry_ticks = true, false, 0
+local enabled, map_loading, retry_ticks, room_ticks = true, false, 0, 0
 local engine, attached_world, attached_pawn, last_error
 local session = nil
 local room = dofile(here .. '/room.lua')
@@ -60,7 +60,7 @@ local function update_room(pawn)
     local marker = io.open(stream .. 'auto-room', 'rb')
     if not marker then return end
     marker:close()
-    local ok, reverb, size, hits = pcall(function()
+    local ok, reverb, size, hits, span = pcall(function()
         local kismet = StaticFindObject('/Script/Engine.Default__KismetSystemLibrary')
         assert(valid(kismet), 'KismetSystemLibrary unavailable')
         return room.measure(kismet, pawn)
@@ -74,7 +74,7 @@ local function update_room(pawn)
         return
     end
     local file = io.open(stream .. 'room.txt', 'wb')
-    if file then file:write(string.format('%d %d %d\n', reverb, size, hits)); file:close() end
+    if file then file:write(string.format('%d %d %d %d\n', reverb, size, hits, span)); file:close() end
     room_last_error = nil
 end
 local function tick()
@@ -114,7 +114,7 @@ if hook_ok then
         -- Register post first: if pre registration fails, we cannot get stuck
         -- permanently suspended with no post hook to release us.
         RegisterLoadMapPostHook(function()
-            map_loading = false; retry_ticks = 0; last_error = nil
+            map_loading = false; retry_ticks = 0; room_ticks = 0; last_error = nil
         end)
         RegisterLoadMapPreHook(function()
             map_loading = true; active = false; clear()
@@ -153,7 +153,6 @@ LoopAsync(50, function()
                             if tostring(err) ~= last_error then last_error = tostring(err); log('Waiting to start: ' .. last_error) end
                         end
                     end
-                    if active then update_room(pawn) end
                 else
                     if active then active = false; clear(); log('World or player unavailable; waiting to reconnect.') end
                     -- Missing world/player is normal while entering or changing a lobby;
@@ -164,6 +163,20 @@ LoopAsync(50, function()
                 end
             end
             if active then
+                room_ticks = room_ticks - 1
+                if room_ticks <= 0 then
+                    room_ticks = 10 -- approx. 500ms at the 50ms loop interval
+                    local marker = io.open(stream .. 'auto-room', 'rb')
+                    if marker then
+                        marker:close()
+                        local found, world, pawn = pcall(context)
+                        if found and world:GetAddress() == attached_world and pawn:GetAddress() == attached_pawn then
+                            update_room(pawn)
+                        else
+                            os.remove(stream .. 'room.txt')
+                        end
+                    end
+                end
                 local ok, err = pcall(tick)
                 if not ok then
                     enabled = false; active = false; clear()

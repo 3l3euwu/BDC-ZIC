@@ -25,13 +25,13 @@ def read_room(path, now=None):
     try:
         now = time.time() if now is None else now
         age = now - path.stat().st_mtime
-        if age < -2 or age > 7: return None
+        if age < -2 or age > 3: return None
         parts = path.read_text(encoding='ascii').split()
-        if len(parts) != 3: return None
-        reverb, size, hits = map(int, parts)
-        if not (0 <= reverb <= 10 and 0 <= size <= 10 and 0 <= hits <= 5): return None
-        if (hits == 0 and (reverb != 0 or size != 0)) or (hits > 0 and (reverb == 0 or size == 0)): return None
-        return reverb, size, hits
+        if len(parts) != 4: return None
+        reverb, size, hits, span = map(int, parts)
+        if not (0 <= reverb <= 10 and 0 <= size <= 10 and 0 <= hits <= 5 and 0 <= span <= 4000): return None
+        if (span == 0 and (reverb != 0 or size != 0)) or (span > 0 and (size == 0 or hits < 3)): return None
+        return reverb, size, hits, span
     except (OSError, UnicodeError, ValueError):
         return None
 
@@ -248,6 +248,7 @@ class Panel:
                 effective = manual
                 if automatic and measured and key in ('reverb', 'size'):
                     effective = measured[0 if key == 'reverb' else 1]
+                    if key == 'size' and measured[0] == 0: effective = 0
                 lines.append(f'{key}={effective}')
                 lines.append(f'manual_{key}={manual}')
                 lines.append(f'{key}_level={level.get()}')
@@ -368,7 +369,7 @@ class Panel:
             if measured is None:
                 self.room_status.set('Waiting for game geometry; using manual reverb / size.')
             else:
-                self.room_status.set(f'Estimated: {measured[2]}/5 surfaces  •  reverb {measured[0]}  •  size {measured[1]}')
+                self.room_status.set(f'Estimated span: {measured[3] / 100:.1f} m  •  reverb {measured[0]}/10' if measured[3] else 'Open / not enclosed  •  synthetic room effect off')
         else:
             self.room_status.set('Auto room off  •  using manual controls')
         if self.proc and self.proc.poll() is not None:
@@ -381,7 +382,7 @@ class Panel:
             else:
                 self.status.set(f'Capture stopped (exit {code}). See %LOCALAPPDATA%/BDC-ZIC/stream/capture.log for details.')
             self.active_mute_label = None
-        self.root.after(500, self.poll)
+        self.root.after(250, self.poll)
     def close(self):
         if self.save_job is not None:
             self.root.after_cancel(self.save_job); self.save_effects()
