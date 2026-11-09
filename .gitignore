@@ -2,3 +2,5 @@ mod/BDC_ZIC/native/*.exe
 mod/BDC_ZIC/native/*.obj
 mod/BDC_ZIC/stream/
 __pycache__/
+
+dev-build/BDC_ZIC/stream/
