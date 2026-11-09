@@ -35,15 +35,13 @@ function RegisterKeyBind(_, fn) key = fn end
 function LoopAsync(_, fn) loop = fn end
 function RegisterLoadMapPreHook(fn) map_pre = fn end
 function RegisterLoadMapPostHook(fn) map_post = fn end
-local real_time, ticks = os.time, 0
-os.time = function() return math.floor(1000 + ticks / 20) end
 assert(loadfile('mod/BDC_ZIC/Scripts/main.lua'))()
 local function advance(count)
-    for _ = 1, count do ticks = ticks + 1; loop() end
+    for _ = 1, count do loop() end
 end
-loop(); assert(started == 0)
-advance(120); assert(started == 0) -- wait at least eight seconds
-advance(50); assert(started == 1 and submitted == 1)
+loop(); assert(started == 1 and submitted == 0) -- attach immediately
+advance(59); assert(submitted == 0) -- no PCM during the warm-up
+advance(1); assert(submitted == 1)
 assert(traces >= 5)
 local sample = assert(io.open(path .. 'room.txt', 'rb')); assert(sample:read('*a') == '4 6 5 1200\n'); sample:close()
 room_distance = 200
@@ -55,19 +53,24 @@ advance(200); assert(started == 1 and traces == old_traces)
 pawn = pawn2; packet(); map_post()
 local before = contexts
 advance(200); assert(started == 1 and contexts == before)
-key(); loop(); assert(started == 1)
-advance(170); assert(started == 2 and submitted == 2)
+key(); loop(); assert(started == 2 and submitted == 1)
+advance(59); assert(submitted == 1)
+advance(1); assert(submitted == 2)
 emitter_valid = false
 loop(); assert(stopped == 0)
 before = contexts
 advance(100); assert(started == 2 and contexts == before)
 emitter_valid = true; pawn = pawn1
-key(); loop(); advance(170); assert(started == 3)
-key(); assert(stopped == 1)
-advance(100); assert(started == 3)
-key(); loop(); advance(80); pawn = pawn2 -- reset delay if player changes before startup
-advance(85); assert(started == 3)
-advance(140); assert(started == 4)
-os.time = real_time
+key(); loop(); assert(started == 3)
+key(); assert(stopped == 1) -- explicit stop during warm-up
+advance(100); assert(started == 3 and submitted == 2)
+key(); packet(); loop(); assert(started == 4 and submitted == 2)
+advance(59); assert(submitted == 2)
+advance(1); assert(submitted == 3)
+-- If the player changes while warming up, no PCM is submitted and no auto-retry.
+key(); key(); packet(); loop(); assert(started == 5)
+pawn = pawn2
+advance(60); assert(submitted == 3)
+before = contexts; advance(100); assert(contexts == before and started == 5)
 os.remove(path .. 'session'); os.remove(path .. 'chunk0.pcm'); os.remove(path .. 'auto-room'); os.remove(path .. 'room.txt')
 print('mod smoke test passed')
