@@ -1,4 +1,4 @@
-// Process-loopback capture helper. No injection, no session-volume changes.
+// Process-loopback capture helper. Optional explicit mute of a non-default endpoint.
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <initguid.h>
@@ -10,6 +10,7 @@
 #include <vector>
 #include <algorithm>
 #include "effects.hpp"
+#include "endpoint.hpp"
 
 // audioclientactivationparams.h is not present in all SDKs.
 struct LoopbackParams { DWORD type, pid, mode; };
@@ -45,7 +46,12 @@ static bool publish(const wchar_t *dir, unsigned slot, const int16_t *data, size
     return ok;
 }
 int wmain(int argc, wchar_t **argv) {
-    if (argc != 3) { fwprintf(stderr, L"Usage: capture.exe PID STREAM_DIRECTORY\n"); return 2; }
+    if (argc == 2 && wcscmp(argv[1], L"--list-outputs") == 0) {
+        HRESULT init = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+        if (FAILED(init)) return 3;
+        int result = list_outputs(); CoUninitialize(); return result;
+    }
+    if (argc != 3 && argc != 5) { fwprintf(stderr, L"Usage: capture.exe PID STREAM_DIRECTORY [OUTPUT_DEVICE_ID PANEL_PID]\n"); return 2; }
     wchar_t *end = nullptr; unsigned long pid = wcstoul(argv[1], &end, 10);
     if (!pid || !end || *end || pid == GetCurrentProcessId()) { fwprintf(stderr, L"Invalid PID\n"); return 2; }
     wchar_t stop[MAX_PATH]; if (swprintf(stop, MAX_PATH, L"%ls\\stop", argv[2]) < 0) return 2;
@@ -67,9 +73,25 @@ int wmain(int argc, wchar_t **argv) {
     wchar_t settings_path[MAX_PATH];
     if (swprintf(settings_path, MAX_PATH, L"%ls\\effects.ini", argv[2]) < 0) { client->Stop(); capture->Release(); handler->Release(); CoUninitialize(); return 2; }
     Effects effects; EffectSettings settings; ULONGLONG last_settings = 0;
+    EndpointMute endpoint;
+    HANDLE panel = nullptr;
+    if (argc == 5) {
+        wchar_t *panel_end = nullptr; unsigned long panel_pid = wcstoul(argv[4], &panel_end, 10);
+        if (!panel_pid || !panel_end || *panel_end || !(panel = OpenProcess(SYNCHRONIZE, FALSE, (DWORD)panel_pid))) {
+            fwprintf(stderr, L"Cannot monitor panel process; refusing to mute output.\n");
+            client->Stop(); capture->Release(); handler->Release(); CoUninitialize(); return 8;
+        }
+        hr = mute_endpoint(endpoint, argv[3]);
+        if (FAILED(hr)) {
+            fwprintf(stderr, L"Cannot mute output (default devices are forbidden): 0x%08lx\n", (unsigned long)hr);
+            restore_endpoint(endpoint); CloseHandle(panel); client->Stop(); capture->Release(); handler->Release(); CoUninitialize(); return 8;
+        }
+        fprintf(stdout, "Dedicated endpoint muted. It will be restored when capture stops normally.\n"); fflush(stdout);
+    }
     HANDLE process = OpenProcess(SYNCHRONIZE, FALSE, (DWORD)pid);
     fprintf(stdout, "Capturing PID %lu. Stop via panel or stop file.\n", pid); fflush(stdout);
-    while (!exists(stop) && (!process || WaitForSingleObject(process, 0) == WAIT_TIMEOUT)) {
+    while (!exists(stop) && (!process || WaitForSingleObject(process, 0) == WAIT_TIMEOUT)
+           && (!panel || WaitForSingleObject(panel, 0) == WAIT_TIMEOUT)) {
         if (GetTickCount64() - last_settings >= 250 || last_settings == 0) {
             // Atomic panel writes; missing file/keys fall back to safe defaults.
             auto read = [&](const wchar_t *key, int fallback, int lo) {
@@ -79,6 +101,13 @@ int wmain(int argc, wchar_t **argv) {
             settings.clarity = read(L"clarity", 0, 0); settings.muffle = read(L"muffle", 0, 0);
             settings.size = read(L"size", 0, 0); settings.stereo = read(L"stereo", 0, 0);
             settings.volume = read(L"volume", 5, 1); last_settings = GetTickCount64();
+            if (endpoint.enumerator) {
+                bool is_default = false; hr = endpoint_is_default(endpoint.enumerator, endpoint.id.c_str(), &is_default);
+                if (FAILED(hr) || is_default) {
+                    fwprintf(stderr, L"Selected output became default or could not be checked. Stopping capture and restoring mute.\n");
+                    failed = true; break;
+                }
+            }
         }
         UINT32 frames = 0; hr = capture->GetNextPacketSize(&frames); if (FAILED(hr)) { failed = true; break; }
         while (frames) {
@@ -97,5 +126,7 @@ int wmain(int argc, wchar_t **argv) {
         if (failed) break; Sleep(10);
     }
     if (failed) fwprintf(stderr, L"Capture or file write failed: 0x%08lx\n", (unsigned long)hr);
-    if (process) CloseHandle(process); client->Stop(); capture->Release(); handler->Release(); CoUninitialize(); return failed ? 6 : 0;
+    HRESULT restore_hr = restore_endpoint(endpoint);
+    if (FAILED(restore_hr)) { fwprintf(stderr, L"Could not restore endpoint mute: 0x%08lx; unmute it manually in Windows.\n", (unsigned long)restore_hr); failed = true; }
+    if (panel) CloseHandle(panel); if (process) CloseHandle(process); client->Stop(); capture->Release(); handler->Release(); CoUninitialize(); return failed ? 6 : 0;
 }

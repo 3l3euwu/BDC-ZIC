@@ -30,6 +30,16 @@ class PresetTests(unittest.TestCase):
         self.assertFalse(panel.matches_preset('Unknown', 'foo.exe', 'Spotify'))
 
 
+class OutputParsingTests(unittest.TestCase):
+    def test_non_default_only_and_unicode(self):
+        output = 'default\tid-default\tSpeakers\navailable\tid-music\tCasque é\n'
+        self.assertEqual(panel.parse_outputs(output), [('id-music', 'Casque é')])
+    def test_invalid_list_fails_closed(self):
+        for value in ('garbage', 'unknown\tid\tname', 'available\t\tname'):
+            with self.assertRaises(ValueError): panel.parse_outputs(value)
+    def test_empty_list(self):
+        self.assertEqual(panel.parse_outputs(''), [])
+
 class EffectSettingsTests(unittest.TestCase):
     def test_round_trip_and_disabled_level(self):
         import tempfile

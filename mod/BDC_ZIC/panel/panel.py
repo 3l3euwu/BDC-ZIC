@@ -35,6 +35,16 @@ def read_room(path, now=None):
     except (OSError, UnicodeError, ValueError):
         return None
 
+def parse_outputs(text):
+    """Only offer explicitly non-default endpoints. IDs remain opaque."""
+    devices = []
+    for line in text.splitlines():
+        fields = line.split('\t', 2)
+        if len(fields) != 3 or fields[0] not in ('available', 'default') or not fields[1] or not fields[2]:
+            raise ValueError('Invalid output-device list from capture helper.')
+        if fields[0] == 'available': devices.append((fields[1], fields[2]))
+    return devices
+
 def matches_preset(preset, process_name, window_title):
     name, title = process_name.casefold(), window_title.casefold()
     if preset == 'All processes':
@@ -82,6 +92,8 @@ class Panel:
         self.root = root
         self.proc = None
         self.log = None
+        self.output_devices = []
+        self.active_mute_label = None
         self.save_job = None
         self.ready = False
         self.effect_vars = {}
@@ -138,7 +150,17 @@ class Panel:
         self.pid = tk.StringVar(); ttk.Entry(row, textvariable=self.pid, width=10).pack(side='left', padx=(8, 14))
         ttk.Button(row, text='Start capture', style='Accent.TButton', command=self.start).pack(side='left', padx=(0, 7))
         ttk.Button(row, text='Stop', command=self.stop).pack(side='left')
-        ttk.Label(source, text='The selected app stays audible on its normal output.', style='Muted.TLabel', wraplength=440).pack(anchor='w', pady=(15, 0))
+        mute_box = ttk.Frame(source, style='Card.TFrame'); mute_box.pack(fill='x', pady=(14, 0))
+        self.mute_output = tk.BooleanVar(value=False)
+        self.mute_check = ttk.Checkbutton(mute_box, text='Mute a dedicated output while capturing', variable=self.mute_output)
+        self.mute_check.pack(anchor='w')
+        self.output_picker = ttk.Combobox(mute_box, state='readonly', values=())
+        self.output_picker.pack(fill='x', pady=(5, 5))
+        controls = ttk.Frame(mute_box, style='Card.TFrame'); controls.pack(fill='x')
+        self.output_refresh = ttk.Button(controls, text='Find outputs', command=self.refresh_outputs)
+        self.output_refresh.pack(side='left', padx=(0, 6))
+        ttk.Button(controls, text='Windows app audio settings', command=self.open_audio_settings).pack(side='left')
+        ttk.Label(source, text='First route the music app to a separate non-default output in Windows. Muting an output silences every app using it.', style='Muted.TLabel', wraplength=440).pack(anchor='w', pady=(8, 0))
 
         ttk.Label(effects, text='02   SOUND SHAPING', style='Section.TLabel').pack(anchor='w')
         ttk.Label(effects, text='Live controls  •  processed before the game', style='Muted.TLabel').pack(anchor='w', pady=(4, 12))
@@ -264,10 +286,35 @@ class Panel:
             elif self.preset.get() != 'All processes' and len(entries) > 1:
                 self.status.set(f'{len(entries)} matches: choose the correct window. Capturing a browser window may not capture its audio process.')
             else:
-                self.status.set('Select a process or enter a PID. The app remains audible on its normal output.')
+                self.status.set('Select a process or enter a PID. Dedicated-output mute is optional.')
         except (OSError, subprocess.CalledProcessError) as e:
             self.items.delete(*self.items.get_children()); self.pid.set('')
             messagebox.showerror('Process list', str(e))
+    def refresh_outputs(self):
+        if self.proc and self.proc.poll() is None: return
+        try:
+            if not HELPER.is_file(): raise ValueError(f'Capture helper not found: {HELPER}')
+            raw = subprocess.check_output([str(HELPER), '--list-outputs'], stderr=subprocess.PIPE,
+                                          creationflags=CREATE_NO_WINDOW, timeout=10)
+            self.output_devices = parse_outputs(raw.decode('utf-8'))
+            self.output_picker['values'] = [label for _, label in self.output_devices]
+            self.output_picker.set('')
+            self.status.set('Choose a dedicated output.' if self.output_devices else
+                            'No non-default outputs found. Connect a separate output first.')
+        except (OSError, ValueError, UnicodeError, subprocess.SubprocessError) as e:
+            self.output_devices = []; self.output_picker['values'] = (); self.output_picker.set('')
+            messagebox.showerror('Audio outputs', str(e))
+
+    def open_audio_settings(self):
+        try: os.startfile('ms-settings:apps-volume')
+        except OSError as e: messagebox.showerror('Windows audio settings', str(e))
+
+    def lock_output_controls(self, locked):
+        state = 'disabled' if locked else 'normal'
+        self.mute_check.configure(state=state)
+        self.output_refresh.configure(state=state)
+        self.output_picker.configure(state='disabled' if locked else 'readonly')
+
     def select(self, _event):
         selected = self.items.selection()
         if selected: self.pid.set(self.items.item(selected[0], 'values')[0])
@@ -278,6 +325,19 @@ class Panel:
             pid = int(self.pid.get())
             if pid <= 0 or pid == os.getpid(): raise ValueError('Choose a valid target PID.')
             if not HELPER.is_file(): raise ValueError(f'Build the capture helper first: {HELPER}')
+            output_id = None
+            output_label = None
+            if self.mute_output.get():
+                index = self.output_picker.current()
+                if index < 0 or index >= len(self.output_devices):
+                    raise ValueError('Choose a separate non-default output using Find outputs first.')
+                output_id, output_label = self.output_devices[index]
+                if not messagebox.askyesno('Mute dedicated output?',
+                    f'Route the music app to "{output_label}" in Windows app audio settings first.\n\n'
+                    'This mutes EVERY app using that output, not just the music app. '
+                    'The device must not be a default Windows output. Normal stop restores its previous mute state. '
+                    'If the helper or PC crashes, you may have to unmute it manually.\n\nContinue?'):
+                    return
             if self.save_job is not None:
                 self.root.after_cancel(self.save_job); self.save_job = None
             if not self.save_effects(): return
@@ -287,16 +347,17 @@ class Panel:
             import time
             (STREAM / 'session').write_text(str(time.time_ns()), encoding='ascii')
             self.log = open(STREAM / 'capture.log', 'w', encoding='utf-8')
-            self.proc = subprocess.Popen([str(HELPER), str(pid), str(STREAM)], stdout=self.log, stderr=subprocess.STDOUT, creationflags=CREATE_NO_WINDOW)
+            args = [str(HELPER), str(pid), str(STREAM)]
+            if output_id: args.extend([output_id, str(os.getpid())])
+            self.proc = subprocess.Popen(args, stdout=self.log, stderr=subprocess.STDOUT, creationflags=CREATE_NO_WINDOW)
+            self.active_mute_label = output_label
+            self.lock_output_controls(True)
             self.status.set(f'Starting PID {pid}. Emitter starts automatically in a match; F7 toggles it. See %LOCALAPPDATA%/BDC-ZIC/stream/capture.log for errors.')
         except (OSError, ValueError) as e:
             if self.log: self.log.close(); self.log = None
             messagebox.showerror('Capture', str(e))
     def stop(self):
         if self.proc and self.proc.poll() is None:
-            if self.save_job is not None:
-                self.root.after_cancel(self.save_job); self.save_job = None
-            if not self.save_effects(): return
             STREAM.mkdir(parents=True, exist_ok=True)
             (STREAM / 'stop').touch()
             self.status.set('Stopping capture…')
@@ -314,15 +375,24 @@ class Panel:
             code = self.proc.returncode
             self.proc = None
             if self.log: self.log.close(); self.log = None
-            self.status.set(f'Capture stopped (exit {code}). See %LOCALAPPDATA%/BDC-ZIC/stream/capture.log for details.')
+            self.lock_output_controls(False)
+            if code and self.active_mute_label:
+                self.status.set(f'Capture stopped (exit {code}). Check {self.active_mute_label} mute in Windows and capture.log.')
+            else:
+                self.status.set(f'Capture stopped (exit {code}). See %LOCALAPPDATA%/BDC-ZIC/stream/capture.log for details.')
+            self.active_mute_label = None
         self.root.after(500, self.poll)
     def close(self):
         if self.save_job is not None:
             self.root.after_cancel(self.save_job); self.save_effects()
         self.stop()
         if self.proc:
-            try: self.proc.wait(timeout=3)
-            except subprocess.TimeoutExpired: self.proc.terminate(); self.proc.wait()
+            try: self.proc.wait(timeout=12)
+            except subprocess.TimeoutExpired:
+                self.proc.terminate(); self.proc.wait()
+                if self.active_mute_label:
+                    messagebox.showwarning('Check output mute',
+                        f'Capture was forced to stop. Check "{self.active_mute_label}" in Windows sound settings and unmute it if necessary.')
         if self.log: self.log.close()
         try:
             (STREAM / 'auto-room').unlink(missing_ok=True)
