@@ -7,6 +7,7 @@ import os
 import pathlib
 import subprocess
 import sys
+import time
 
 MOD = pathlib.Path(__file__).resolve().parent.parent
 STREAM = pathlib.Path(os.environ['LOCALAPPDATA']) / 'BDC-ZIC' / 'stream' if os.environ.get('LOCALAPPDATA') else MOD / 'stream'
@@ -18,6 +19,21 @@ GAME_URI = 'steam://rungameid/2406770'
 def launch_game(opener=None):
     # Delegate protocol handling and the already-running case to Steam.
     (opener or os.startfile)(GAME_URI)
+
+def read_room(path, now=None):
+    """Read the short-lived geometry estimate; stale or partial data is ignored."""
+    try:
+        now = time.time() if now is None else now
+        age = now - path.stat().st_mtime
+        if age < -2 or age > 7: return None
+        parts = path.read_text(encoding='ascii').split()
+        if len(parts) != 3: return None
+        reverb, size, hits = map(int, parts)
+        if not (0 <= reverb <= 10 and 0 <= size <= 10 and 0 <= hits <= 5): return None
+        if (hits == 0 and (reverb != 0 or size != 0)) or (hits > 0 and (reverb == 0 or size == 0)): return None
+        return reverb, size, hits
+    except (OSError, UnicodeError, ValueError):
+        return None
 
 def matches_preset(preset, process_name, window_title):
     name, title = process_name.casefold(), window_title.casefold()
@@ -69,6 +85,7 @@ class Panel:
         self.save_job = None
         self.ready = False
         self.effect_vars = {}
+        self.last_room = None
         root.title('BDC-ZIC  •  Audio Studio')
         root.geometry('1100x740'); root.minsize(850, 650)
         root.configure(bg='#10131b')
@@ -126,6 +143,11 @@ class Panel:
         ttk.Label(effects, text='02   SOUND SHAPING', style='Section.TLabel').pack(anchor='w')
         ttk.Label(effects, text='Live controls  •  processed before the game', style='Muted.TLabel').pack(anchor='w', pady=(4, 12))
         settings = self.load_effects()
+        self.auto_room = tk.BooleanVar(value=settings['auto_room'])
+        self.room_status = tk.StringVar(value='Auto room off')
+        ttk.Checkbutton(effects, text='Auto room from game (experimental)', variable=self.auto_room,
+                        command=self.queue_effects).pack(anchor='w', pady=(0, 2))
+        ttk.Label(effects, textvariable=self.room_status, style='Muted.TLabel', wraplength=360).pack(anchor='w', pady=(0, 7))
         descriptions = [('reverb', 'Reverb'), ('distance', 'Distance'), ('clarity', 'Clarity'),
                         ('muffle', 'Muffle'), ('size', 'Room size'), ('stereo', 'Stereo input blend')]
         for key, label in descriptions:
@@ -157,20 +179,23 @@ class Panel:
         ttk.Label(root, textvariable=self.status, foreground='#b9c4d8', wraplength=1000).pack(fill='x', padx=26, pady=(0, 16))
         root.protocol('WM_DELETE_WINDOW', self.close)
         self.ready = True
-        self.refresh(); self.poll()
+        self.save_effects(); self.refresh(); self.poll()
 
     def load_effects(self):
         result = {key: (False, 5) for key in ('reverb', 'distance', 'clarity', 'muffle', 'size', 'stereo')}
         result['volume'] = 5
+        result['auto_room'] = False
         config = configparser.ConfigParser()
         try:
             config.read(STREAM / 'effects.ini', encoding='utf-8')
             section = config['effects'] if config.has_section('effects') else {}
             for key in list(result):
-                if key == 'volume':
+                if key == 'auto_room':
+                    result[key] = int(section.get(key, 0)) == 1
+                elif key == 'volume':
                     result[key] = max(1, min(10, int(section.get(key, 5))))
                 else:
-                    enabled = int(section.get(key, 0)) > 0
+                    enabled = int(section.get('manual_' + key, section.get(key, 0))) > 0
                     level = max(1, min(10, int(section.get(key + '_level', section.get(key, 5)))))
                     result[key] = (enabled, level)
         except (OSError, ValueError, configparser.Error):
@@ -186,13 +211,28 @@ class Panel:
         self.save_job = None
         try:
             STREAM.mkdir(parents=True, exist_ok=True)
-            lines = ['[effects]', f'volume={self.volume.get()}']
+            automatic = self.auto_room.get()
+            marker, sample = STREAM / 'auto-room', STREAM / 'room.txt'
+            if automatic:
+                marker.touch()
+                measured = read_room(sample)
+            else:
+                marker.unlink(missing_ok=True)
+                sample.unlink(missing_ok=True)
+                measured = None
+            lines = ['[effects]', f'volume={self.volume.get()}', f'auto_room={int(automatic)}']
             for key, (enabled, level) in self.effect_vars.items():
-                lines.append(f'{key}={level.get() if enabled.get() else 0}')
+                manual = level.get() if enabled.get() else 0
+                effective = manual
+                if automatic and measured and key in ('reverb', 'size'):
+                    effective = measured[0 if key == 'reverb' else 1]
+                lines.append(f'{key}={effective}')
+                lines.append(f'manual_{key}={manual}')
                 lines.append(f'{key}_level={level.get()}')
             tmp = STREAM / 'effects.tmp'
             tmp.write_text('\n'.join(lines) + '\n', encoding='ascii')
             os.replace(tmp, STREAM / 'effects.ini')
+            self.last_room = measured
             return True
         except OSError as e:
             self.status.set(f'Could not save effects: {e}')
@@ -261,6 +301,15 @@ class Panel:
             (STREAM / 'stop').touch()
             self.status.set('Stopping capture…')
     def poll(self):
+        if self.auto_room.get():
+            measured = read_room(STREAM / 'room.txt')
+            if measured != self.last_room: self.save_effects()
+            if measured is None:
+                self.room_status.set('Waiting for game geometry; using manual reverb / size.')
+            else:
+                self.room_status.set(f'Estimated: {measured[2]}/5 surfaces  •  reverb {measured[0]}  •  size {measured[1]}')
+        else:
+            self.room_status.set('Auto room off  •  using manual controls')
         if self.proc and self.proc.poll() is not None:
             code = self.proc.returncode
             self.proc = None
@@ -275,6 +324,10 @@ class Panel:
             try: self.proc.wait(timeout=3)
             except subprocess.TimeoutExpired: self.proc.terminate(); self.proc.wait()
         if self.log: self.log.close()
+        try:
+            (STREAM / 'auto-room').unlink(missing_ok=True)
+            (STREAM / 'room.txt').unlink(missing_ok=True)
+        except OSError: pass
         self.root.destroy()
 
 if __name__ == '__main__':

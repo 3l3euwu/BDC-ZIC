@@ -5,6 +5,7 @@ $package = Join-Path $root 'dev-build/BDC_ZIC'
 New-Item -ItemType Directory -Force $package | Out-Null
 New-Item -ItemType Directory -Force (Join-Path $package 'Scripts'), (Join-Path $package 'panel') | Out-Null
 Copy-Item -Force (Join-Path $root 'mod/BDC_ZIC/Scripts/main.lua') (Join-Path $package 'Scripts')
+Copy-Item -Force (Join-Path $root 'mod/BDC_ZIC/Scripts/room.lua') (Join-Path $package 'Scripts')
 Copy-Item -Force (Join-Path $root 'mod/BDC_ZIC/panel/panel.py') (Join-Path $package 'panel')
 Copy-Item -Force (Join-Path $root 'mod/BDC_ZIC/Open-Panel.cmd') $package
 Copy-Item -Force (Join-Path $root 'mod/BDC_ZIC/Open-Panel.vbs') $package

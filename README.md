@@ -27,6 +27,12 @@ The panel's sound-shaping switches and 1–10 sliders are applied by the capture
 
 Settings are intentionally simple, not a physically accurate acoustic simulation. Audible results and performance in Bodycam remain untested. The panel requires the updated `capture.exe` from the same build; an older helper will ignore the controls.
 
+### Experimental automatic room estimate
+
+Enable **Auto room from game** in the panel. Every ~2 seconds while the emitter is active, the mod performs five visibility traces around the local player (four horizontal and one upward, up to 20 m). The panel uses the number and average distance of hits to choose synthetic **reverb** and **room size**; other controls remain manual. The sliders and switches for those two effects are kept as fallback and are not changed. With no nearby hits the synthetic room effect is disabled. Turning auto off, losing the estimate, or an estimate older than seven seconds restores the manual values.
+
+This is an **opt-in approximation from collision geometry**, not a reading of Bodycam's actual room-size, gunshot, material, occlusion, or reverb settings. It does not hook or duplicate gunfire, and UE audio may add its own processing on top. Collision channels, open doors, moving objects, and trace compatibility can make the estimate misleading; it can add overhead or fail in a particular game/UE4SS build. Check the panel status and `[BDC-ZIC]` log; disable it if it causes issues. Not tested in Bodycam.
+
 ## Important audio limitations
 
 - **The music app is not muted.** Windows session mute also silences process loopback, so a naive mute would prevent capture. This prototype does not inject into other apps or change system routing. You may hear both the original app and the in-game emitter. A separate output device routed to the app and muted at the *endpoint* may work, but affects everything on that endpoint and is not managed by this project. Do not mute your main endpoint expecting only the app to be silenced.

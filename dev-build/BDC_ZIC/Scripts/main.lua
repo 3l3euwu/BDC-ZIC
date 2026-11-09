@@ -6,12 +6,15 @@ local active, queued, wave, component, slot = false, false, nil, nil, 0
 local enabled, map_loading, retry_ticks = true, false, 0
 local engine, attached_world, attached_pawn, last_error
 local session = nil
+local room = dofile(here .. '/room.lua')
+local room_last_error
 local function log(s) print('[BDC-ZIC] ' .. tostring(s) .. '\n') end
 local function valid(o)
     local ok, result = pcall(function() return o ~= nil and o:IsValid() end)
     return ok and result == true
 end
 local function clear()
+    os.remove(stream .. 'room.txt') -- never reuse an estimate after a world change
     if valid(component) then pcall(function() component:Stop() end) end
     component, wave, attached_world, attached_pawn = nil, nil, nil, nil
 end
@@ -52,6 +55,27 @@ local function start(world, pawn, statics)
     attached_world, attached_pawn = world:GetAddress(), pawn:GetAddress()
     slot = 0
     log('Emitter attached to local pawn. Start capture in the panel.')
+end
+local function update_room(pawn)
+    local marker = io.open(stream .. 'auto-room', 'rb')
+    if not marker then return end
+    marker:close()
+    local ok, reverb, size, hits = pcall(function()
+        local kismet = StaticFindObject('/Script/Engine.Default__KismetSystemLibrary')
+        assert(valid(kismet), 'KismetSystemLibrary unavailable')
+        return room.measure(kismet, pawn)
+    end)
+    if not ok then
+        os.remove(stream .. 'room.txt')
+        if tostring(reverb) ~= room_last_error then
+            room_last_error = tostring(reverb)
+            log('Auto room unavailable; using manual effects: ' .. room_last_error)
+        end
+        return
+    end
+    local file = io.open(stream .. 'room.txt', 'wb')
+    if file then file:write(string.format('%d %d %d\n', reverb, size, hits)); file:close() end
+    room_last_error = nil
 end
 local function tick()
     if not active then return end
@@ -129,6 +153,7 @@ LoopAsync(50, function()
                             if tostring(err) ~= last_error then last_error = tostring(err); log('Waiting to start: ' .. last_error) end
                         end
                     end
+                    if active then update_room(pawn) end
                 else
                     if active then active = false; clear(); log('World or player unavailable; waiting to reconnect.') end
                     -- Missing world/player is normal while entering or changing a lobby;
