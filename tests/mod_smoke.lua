@@ -56,21 +56,33 @@ advance(200); assert(started == 1 and contexts == before)
 key(); loop(); assert(started == 2 and submitted == 1)
 advance(59); assert(submitted == 1)
 advance(1); assert(submitted == 2)
-emitter_valid = false
+-- Death: emitter invalid, player temporarily unavailable; no stale Stop or PCM.
+emitter_valid = false; pawn = nil
 loop(); assert(stopped == 0)
-before = contexts
-advance(100); assert(started == 2 and contexts == before)
-emitter_valid = true; pawn = pawn1
-key(); loop(); assert(started == 3)
-key(); assert(stopped == 1) -- explicit stop during warm-up
-advance(100); assert(started == 3 and submitted == 2)
-key(); packet(); loop(); assert(started == 4 and submitted == 2)
-advance(59); assert(submitted == 2)
-advance(1); assert(submitted == 3)
--- If the player changes while warming up, no PCM is submitted and no auto-retry.
-key(); key(); packet(); loop(); assert(started == 5)
+advance(100); assert(started == 2 and submitted == 2)
+emitter_valid = true; pawn = pawn1; packet()
+advance(45); assert(started == 3 and submitted == 2) -- automatic reattach
+advance(70); assert(submitted == 3) -- fresh three-second delay
+-- Pawn change without emitter destruction, including Auto Room detection.
 pawn = pawn2
-advance(60); assert(submitted == 3)
-before = contexts; advance(100); assert(contexts == before and started == 5)
+advance(12); assert(stopped == 0 and started == 3); packet()
+advance(45); assert(started == 4 and submitted == 3)
+advance(70); assert(submitted == 4)
+-- User disable suppresses retries.
+key(); assert(stopped == 1)
+local before_disabled = contexts
+advance(100); assert(started == 4 and contexts == before_disabled)
+key(); packet(); loop(); assert(started == 5 and submitted == 4)
+advance(61); assert(submitted == 5)
+-- World change without a map hook must fail closed.
+local world2 = setmetatable({GetAddress = function() return 2 end}, {__index = good})
+engine.GameViewport.World = world2
+advance(45); local before_world = contexts
+advance(100); assert(started == 5 and contexts == before_world)
+key(); loop(); assert(started == 6) -- explicit resume in new world
+-- Map load after loss but before reconnect must still pause.
+emitter_valid = false; loop(); map_pre(); map_post(); emitter_valid = true
+local before_map = contexts
+advance(120); assert(started == 6 and contexts == before_map)
 os.remove(path .. 'session'); os.remove(path .. 'chunk0.pcm'); os.remove(path .. 'auto-room'); os.remove(path .. 'room.txt')
 print('mod smoke test passed')

@@ -10,6 +10,7 @@ local buffer_logged = false
 local room = dofile(here .. '/room.lua')
 local room_ticks, room_last_error, room_probe_logged = 0, nil, false
 local playback_wait = 0
+local recovery_world, attached_since_map = nil, false
 os.remove(stream .. 'room.txt')
 local function log(s) print('[BDC-ZIC] ' .. tostring(s) .. '\n') end
 local function valid(o)
@@ -63,6 +64,7 @@ local function start(world, pawn, statics)
     slot = 0
     buffer_logged = false
     playback_wait = 60 -- 60 game-thread iterations at 50ms, approximately 3 seconds
+    attached_since_map = true; recovery_world = nil
     log('Emitter attached to local pawn. Waiting about 3 seconds before playback; start capture in the panel.')
 end
 local function update_room(pawn)
@@ -87,11 +89,17 @@ local function update_room(pawn)
     if file then file:write(string.format('%d %d %d %d\n', reverb, size, hits, span)); file:close() end
     room_last_error = nil
 end
+-- Death and respawn can invalidate the component or pawn. Drop references without
+-- invoking the old UObjects; only reconnect if the original world is still active.
+local function recover_player(reason)
+    recovery_world = attached_world or recovery_world
+    active = false; clear(false); retry_ticks = 40; room_ticks = 0
+    log(reason .. ' Waiting for a local player in the same world to reconnect.')
+end
 local function tick()
     if not active then return end
     if not valid(component) or not valid(wave) then
-        enabled = false; active = false; clear(false)
-        log('Emitter lost. Playback paused for safety; after loading, press F7 to resume.')
+        recover_player('Emitter lost.')
         return
     end
     if playback_wait > 0 then
@@ -139,7 +147,8 @@ if hook_ok then
         end)
         RegisterLoadMapPreHook(function()
             map_loading = true; room_ticks = 0
-            if active then enabled = false end
+            if attached_since_map then enabled = false end
+            attached_since_map = false; recovery_world = nil
             active = false
             log('Diagnostic: map load starting; dropping emitter references without calling Unreal.')
             clear(false)
@@ -153,7 +162,7 @@ end
 RegisterKeyBind(Key.F7, function()
     ExecuteInGameThread(function()
         if map_loading then log('Wait until the map has loaded before pressing F7.'); return end
-        enabled = not enabled; room_ticks = 0
+        enabled = not enabled; room_ticks = 0; recovery_world = nil
         if not enabled then active = false; clear(true); log('Emitter disabled. Press F7 to enable it.')
         else retry_ticks = 0; last_error = nil; log('Emitter enabled; waiting for local player.') end
     end)
@@ -169,9 +178,14 @@ LoopAsync(50, function()
                 retry_ticks = 40 -- check once every ~2 seconds, on the game thread
                 local ok, world, pawn, statics = pcall(context)
                 if ok then
-                    if active and (world:GetAddress() ~= attached_world or pawn:GetAddress() ~= attached_pawn) then
-                        enabled = false; active = false; clear(false)
-                        log('Player or world changed. Playback paused for safety; press F7 after loading to resume.')
+                    local world_id, pawn_id = world:GetAddress(), pawn:GetAddress()
+                    if (active and world_id ~= attached_world) or (recovery_world and world_id ~= recovery_world) then
+                        enabled = false; active = false; recovery_world = nil; clear(false)
+                        log('World changed. Playback paused for safety; press F7 after loading to resume.')
+                        return
+                    end
+                    if active and pawn_id ~= attached_pawn then
+                        recover_player('Local player changed.')
                         return
                     end
                     if not active then
@@ -184,8 +198,7 @@ LoopAsync(50, function()
                     end
                 else
                     if active then
-                        enabled = false; active = false; clear(false)
-                        log('World or player unavailable. Playback paused for safety; press F7 after loading to resume.')
+                        recover_player('World or player unavailable.')
                         return
                     end
                     -- Missing world/player is normal while entering or changing a lobby;
@@ -206,8 +219,12 @@ LoopAsync(50, function()
                         if found and world:GetAddress() == attached_world and pawn:GetAddress() == attached_pawn then
                             update_room(pawn)
                         else
-                            enabled = false; active = false; clear(false)
-                            log('Player or world unavailable during Auto Room. Playback paused; press F7 after loading.')
+                            if found and world:GetAddress() ~= attached_world then
+                                enabled = false; active = false; recovery_world = nil; clear(false)
+                                log('World changed during Auto Room. Press F7 after loading to resume.')
+                            else
+                                recover_player('Player unavailable or changed during Auto Room.')
+                            end
                             return
                         end
                     else
@@ -230,5 +247,5 @@ local unload_ok = pcall(function()
     ModRef.OnUnload = function() enabled = false; active = false; clear() end
 end)
 if not unload_ok then log('This UE4SS build does not support the optional unload hook; stop with F7 before unloading.') end
-log('Loaded. The emitter attaches when the player is detected; playback starts about 3 seconds later. Press F7 after a map change to resume.')
+log('Loaded. Emitter reconnects after player loss in the same world; playback starts about 3 seconds after attachment. Press F7 after a map change to resume.')
 log('Auto Room is experimental and runs geometry traces only when enabled in the panel.')
