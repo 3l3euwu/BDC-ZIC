@@ -7,6 +7,7 @@ New-Item -ItemType Directory -Force (Join-Path $package 'Scripts'), (Join-Path $
 Copy-Item -Force (Join-Path $root 'mod/BDC_ZIC/Scripts/main.lua') (Join-Path $package 'Scripts')
 Copy-Item -Force (Join-Path $root 'mod/BDC_ZIC/panel/panel.py') (Join-Path $package 'panel')
 Copy-Item -Force (Join-Path $root 'mod/BDC_ZIC/Open-Panel.cmd') $package
+Copy-Item -Force (Join-Path $root 'mod/BDC_ZIC/Open-Panel.vbs') $package
 $native = Join-Path $package 'native'
 New-Item -ItemType Directory -Force $native | Out-Null
 $out = Join-Path $native 'capture.exe'

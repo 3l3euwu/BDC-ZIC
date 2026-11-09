@@ -8,14 +8,14 @@ A **local** UE4SS mod that experiments with playing another Windows app's audio 
 
 - Windows x64, Windows 10 build 20348 or later (or Windows 11) for process loopback; Bodycam and a UE4SS build compatible with your game version (UE 5.5 builds commonly require an experimental UE4SS build).
 - The game must expose `/Script/SteamCorePro.Default__SteamCoreProVoice`, `ConstructSteamCoreProVoice` and `AddAudioBuffer`. If the plugin is absent this prototype cannot play audio.
-- Python 3 with Tkinter (`py -3`) to run the panel, and Zig to build the helper. No Python packages, accounts, or network service needed.
+- Python 3 with Tkinter and the Windows Python launcher (`pyw.exe`) to run the panel, and Zig to build the helper. No Python packages, accounts, or network service needed.
 
 ## Build and install
 
 1. Install Zig and run `powershell -ExecutionPolicy Bypass -File .\build.ps1` from the repository. This produces a ready-to-copy `dev-build\BDC_ZIC` folder, including `native\capture.exe`. A development build may already be present there; rebuild it after changing the source.
 2. Copy the **whole** `dev-build\BDC_ZIC` folder to `Bodycam\Bodycam\Binaries\Win64\ue4ss\Mods\BDC_ZIC`. Enable it by adding `BDC_ZIC : 1` to `ue4ss\Mods\mods.txt` (or use your UE4SS mod manager). Keep the panel, helper and Scripts together.
 3. Launch Bodycam, enter a match, and press **F7** to create the local emitter. Check the UE4SS console for `[BDC-ZIC]` errors. F7 again stops the emitter; after a map change restart it in the new match.
-4. Run `Open-Panel.cmd` in the installed mod folder, select **Spotify** or **YoloTube / YouTube** in the app preset, choose a matching window (or use **All processes** / type a PID), and press **Start capture**. Start music in that app. Select the parent process if audio is produced by a child process; window-title matches do not guarantee that the window owner actually renders audio, and some browsers use audio service processes outside the selected tree. Refresh after opening or changing windows; if there are multiple matches, choose one explicitly. Use Stop or close the panel to stop capture.
+4. Run `Open-Panel.vbs` in the installed mod folder (uses `pyw.exe` so no Python console is shown), select **Spotify** or **YoloTube / YouTube** in the app preset, choose a matching window (or use **All processes** / type a PID), and press **Start capture**. Start music in that app. Select the parent process if audio is produced by a child process; window-title matches do not guarantee that the window owner actually renders audio, and some browsers use audio service processes outside the selected tree. Refresh after opening or changing windows; if there are multiple matches, choose one explicitly. Use Stop or close the panel to stop capture.
 
 ## Live effects
 

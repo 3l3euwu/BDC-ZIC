@@ -1,3 +1,3 @@
 @echo off
-py -3 "%~dp0panel\panel.py"
-if errorlevel 1 pause
+rem Compatibility shortcut: use Open-Panel.vbs directly to avoid a console flash.
+start "" wscript.exe "%~dp0Open-Panel.vbs"

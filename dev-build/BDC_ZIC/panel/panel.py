@@ -274,6 +274,16 @@ class Panel:
 
 if __name__ == '__main__':
     if sys.platform != 'win32': sys.exit('The panel and process-loopback capture require Windows.')
-    import tkinter as tk
-    from tkinter import ttk, messagebox
-    app = tk.Tk(); Panel(app); app.mainloop()
+    try:
+        import tkinter as tk
+        from tkinter import ttk, messagebox
+        import traceback
+        app = tk.Tk()
+        def report_error(exc, value, tb):
+            messagebox.showerror('BDC-ZIC error', ''.join(traceback.format_exception(exc, value, tb)))
+        app.report_callback_exception = report_error
+        Panel(app)
+        app.mainloop()
+    except Exception as exc:
+        # pythonw has no console. Keep startup failures visible to the user.
+        ctypes.windll.user32.MessageBoxW(None, str(exc), 'BDC-ZIC could not start', 0x10)
